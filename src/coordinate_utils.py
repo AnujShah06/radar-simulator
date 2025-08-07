@@ -64,7 +64,7 @@ def test_conversions():
     
     print(f"Cartesian: x={x}, y={y}")
     print(f"Back to polar: ranges={ranges_back}, bearings={bearings_back}")
-    print("✅ Conversion test complete!")
+    print("Conversion test complete!")
 
 if __name__ == "__main__":
     test_conversions()

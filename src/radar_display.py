@@ -85,19 +85,19 @@ class RadarDisplay:
     
     def update_sweep(self, frame):
         """Update the radar sweep animation"""
-        # Clear previous sweep line
+        #clear previous sweep line
         if self.sweep_line:
             self.sweep_line.remove()
         
-        # Update sweep angle (6 degrees per frame = 60 RPM)
+        #iupdate sweep angle (6 degrees per frame = 60 RPM)
         self.sweep_angle = (frame * 6) % 360
         sweep_rad = np.radians(self.sweep_angle)
         
-        # Draw sweep line
+        #draw sweep line
         self.sweep_line = self.ax.plot([sweep_rad, sweep_rad], [0, self.max_range], 
                                       'yellow', linewidth=2, alpha=0.8)[0]
         
-        # Check which targets are "detected" by sweep
+        #check which targets are "detected" by sweep
         self.update_target_detection()
         
         return [self.sweep_line]
@@ -109,7 +109,6 @@ class RadarDisplay:
             if hasattr(target, 'plot'):
                 target['plot'].remove()
         
-        # Check each target
         sweep_width = 10  # degrees
         for target in self.targets:
             bearing = target['bearing']
@@ -117,7 +116,7 @@ class RadarDisplay:
             
             if angle_diff <= sweep_width:
                 target['detected'] = True
-                # Plot detected target
+                #plot detected target
                 theta_rad = np.radians(bearing)
                 target['plot'] = self.ax.plot(theta_rad, target['range'], 
                                             'ro', markersize=8, alpha=0.9)[0]
@@ -141,12 +140,12 @@ class RadarDisplay:
         
         plt.show()
 
-# Test the radar display
+#test the radar display
 def test_radar_display():
     """Test the radar display class"""
     radar = RadarDisplay(max_range=250)
     
-    # Add some test targets
+    #adds some test targets
     radar.add_target(80, 30, 'aircraft')
     radar.add_target(150, 120, 'aircraft')
     radar.add_target(200, 200, 'ship')
