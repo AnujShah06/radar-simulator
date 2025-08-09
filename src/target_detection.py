@@ -143,3 +143,160 @@ class TargetDetector:
             self.target_id_counter += 1
         
         return confirmed_targets
+    def classify_targets(self, targets: List[DetectedTarget]) -> List[DetectedTarget]:
+        """Classify targets based on their characteristics"""
+        for target in targets:
+            signal_values = [r.signal_strength for r in target.raw_returns]
+            signal_std = np.std(signal_values)
+            signal_variability = signal_std / np.mean(signal_values) if signal_values else 0
+            
+            estimated_rcs = self.estimate_rcs_from_signal(target.signal_strength, target.range_km)
+            
+            classification_scores = {}
+            
+            for class_name, rules in self.classification_rules.items():
+                score = 0
+                
+                doppler_min, doppler_max = rules['doppler_range']
+                if doppler_min <= abs(target.doppler_shift) <= doppler_max:
+                    score += 0.4
+                
+                rcs_min, rcs_max = rules['rcs_range']
+                if rcs_min <= estimated_rcs <= rcs_max:
+                    score += 0.4
+                
+                expected_variability = rules['signal_variability']
+                variability_diff = abs(signal_variability - expected_variability)
+                if variability_diff < 0.1:
+                    score += 0.2
+                
+                classification_scores[class_name] = score
+            
+            best_class = max(classification_scores, key=classification_scores.get)
+            best_score = classification_scores[best_class]
+            
+            target.classification = best_class
+            target.confidence = best_score
+            
+            if target.confidence < 0.5:
+                target.classification = "unknown"
+        
+        return targets
+    
+    def estimate_rcs_from_signal(self, signal_strength: float, range_km: float) -> float:
+        """Estimate radar cross section from received signal strength and range"""
+        #inverse of radar range equation (simplified)
+        #approximation - real radar systems use calibration
+        
+        range_m = range_km * 1000
+        range_factor = (range_m / 1000) ** 4  #fourth power law
+        estimated_rcs = signal_strength * range_factor * 10  #scale factor
+        
+        return max(0.01, estimated_rcs)  #minimum rcs
+    
+    def get_detection_statistics(self, targets: List[DetectedTarget]) -> Dict:
+        """Calculate detection statistics"""
+        if not targets:
+            return {"total": 0}
+        
+        stats = {
+            "total": len(targets),
+            "by_classification": {},
+            "avg_snr": np.mean([t.snr_db for t in targets]),
+            "avg_confidence": np.mean([t.confidence for t in targets]),
+            "range_distribution": {
+                "min": min([t.range_km for t in targets]),
+                "max": max([t.range_km for t in targets]),
+                "avg": np.mean([t.range_km for t in targets])
+            }
+        }
+        
+        for target in targets:
+            class_name = target.classification
+            stats["by_classification"][class_name] = stats["by_classification"].get(class_name, 0) + 1
+        
+        return stats
+
+#test the detection system
+def test_target_detection():
+    """Test the target detection system"""
+    print("Testing Target Detection System")
+    print("=" * 40)
+    
+    detector = TargetDetector()
+    
+    #mock raw detections (simulating radar_data_generator)
+    raw_detections = [
+        {
+            'range': 75.0,
+            'bearing': 45.0,
+            'target': type('MockTarget', (), {
+                'radar_cross_section': 20.0,
+                'speed': 800,
+                'heading': 90,
+                'target_type': type('TargetType', (), {'value': 'aircraft'})()
+            })(),
+            'detection_time': 1.0
+        },
+        {
+            'range': 76.0,  #same target, slightly different measurement
+            'bearing': 46.0,
+            'target': type('MockTarget', (), {
+                'radar_cross_section': 20.0,
+                'speed': 800,
+                'heading': 90,
+                'target_type': type('TargetType', (), {'value': 'aircraft'})()
+            })(),
+            'detection_time': 1.1
+        },
+        {
+            'range': 150.0,
+            'bearing': 120.0,
+            'target': type('MockTarget', (), {
+                'radar_cross_section': 500.0,
+                'speed': 25,
+                'heading': 180,
+                'target_type': type('TargetType', (), {'value': 'ship'})()
+            })(),
+            'detection_time': 1.0
+        },
+        {
+            'range': 90.0,  #false alarm
+            'bearing': 200.0,
+            'target': None,
+            'detection_time': 1.0,
+            'is_false_alarm': True
+        }
+    ]
+    
+    print(f"\nProcessing {len(raw_detections)} raw detections...")
+    
+    detected_targets = detector.process_raw_detections(raw_detections)
+    
+    print(f"\nDetection Results:")
+    print(f"  Raw detections: {len(raw_detections)}")
+    print(f"  Confirmed targets: {len(detected_targets)}")
+    
+    for target in detected_targets:
+        print(f"\n  {target.id}: {target.classification.upper()}")
+        print(f"    Position: {target.range_km:.1f} km, {target.bearing_deg:.1f}°")
+        print(f"    Signal: {target.signal_strength:.3f}, SNR: {target.snr_db:.1f} dB")
+        print(f"    Doppler: {target.doppler_shift:.1f} m/s")
+        print(f"    Confidence: {target.confidence:.2f}")
+        print(f"    Raw returns: {len(target.raw_returns)}")
+    
+    stats = detector.get_detection_statistics(detected_targets)
+    print(f"\n  Detection Statistics:")
+    print(f"    Total targets: {stats['total']}")
+    print(f"    Average SNR: {stats.get('avg_snr', 0):.1f} dB")
+    print(f"    Average confidence: {stats.get('avg_confidence', 0):.2f}")
+    
+    if 'by_classification' in stats:
+        print("    By classification:")
+        for class_name, count in stats['by_classification'].items():
+            print(f"      {class_name}: {count}")
+    
+    print("\n✅ Target detection test complete!")
+
+if __name__ == "__main__":
+    test_target_detection()
