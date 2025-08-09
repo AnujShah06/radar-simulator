@@ -27,7 +27,7 @@ class FilterType(Enum):
 
 class SignalProcessor:
     def __init__(self):
-        self.detection_threshold = 0.5
+        self.detection_threshold = 0.2
         self.noise_floor = 0.1
         self.false_alarm_rate = 0.02
         self.filter_window_size = 5
@@ -83,16 +83,31 @@ class SignalProcessor:
         
         return filtered
     
-    def threshold_detection(self, signals: List[float], threshold: float = None) -> List[bool]:
+    def threshold_detection(self, signals: List[float], threshold: float = None, noise_levels: List[float] = None) -> List[bool]:
         """Detect targets based on signal threshold"""
         if threshold is None:
             threshold = self.detection_threshold
         
-        #adaptive threshold based on noise floor
-        noise_estimate = np.percentile(signals, 25) if signals else 0  #percentile25 as noise estimate
-        adaptive_threshold = max(threshold, noise_estimate * 3)  #at least 3x noise level
+        if not signals:
+            return []
         
-        detections = [signal_val > adaptive_threshold for signal_val in signals]
+        #if we have noise level information, use it
+        if noise_levels and len(noise_levels) == len(signals):
+            avg_noise = np.mean(noise_levels)
+            adaptive_threshold = max(threshold, avg_noise * 3)  #3x average noise
+            print(f"    Adaptive threshold: {adaptive_threshold:.3f} (base: {threshold:.3f}, avg_noise: {avg_noise:.3f})")
+        else:
+            #fall back to fixed threshold
+            adaptive_threshold = threshold
+            print(f"    Fixed threshold: {adaptive_threshold:.3f}")
+        
+        #convert numpy bool to Python bool explicitly
+        detections = []
+        for signal_val in signals:
+            is_detected = signal_val > adaptive_threshold
+            detections.append(bool(is_detected))
+            print(f"    Signal {signal_val:.3f} > {adaptive_threshold:.3f} = {bool(is_detected)}")
+        
         return detections
     
     def calculate_snr(self, signal_strength: float, noise_level: float) -> float:
@@ -116,7 +131,7 @@ class SignalProcessor:
         #radar range equation: Pr = (Pt * G^2 * λ^2 * σ) / ((4π)^3 * R^4)
         #where: Pt=transmit power, G=antenna gain, λ=wavelength, σ=RCS, R=range
         
-        wavelength = 3e8 / (frequency_ghz * 1e9)  # c / f
+        wavelength = 3e8 / (frequency_ghz * 1e9)  #c / f
         
         numerator = radar_power * (antenna_gain_linear ** 2) * (wavelength ** 2) * target_rcs
         denominator = ((4 * np.pi) ** 3) * (range_m ** 4)
@@ -176,22 +191,30 @@ class SignalProcessor:
         if not radar_returns:
             return []
         
+        #extract signal strengths and noise levels for filtering
         signals = [r.signal_strength for r in radar_returns]
+        noise_levels = [r.noise_level for r in radar_returns]
         
+        #apply moving average filter
         filtered_signals = self.moving_average_filter(signals)
         
+        #apply exponential smoothing
         smoothed_signals = self.exponential_filter(filtered_signals)
         
-        valid_detections = self.threshold_detection(smoothed_signals)
+        #threshold detection with noise level information
+        valid_detections = self.threshold_detection(smoothed_signals, noise_levels=noise_levels)
         
+        #create filtered returns
         filtered_returns = []
         for i, (radar_return, is_valid, filtered_signal) in enumerate(
             zip(radar_returns, valid_detections, smoothed_signals)):
             
             if is_valid:
+                #calculate SNR
                 snr = self.calculate_snr(filtered_signal, radar_return.noise_level)
                 
-                if snr > 6:  #min snr 6 db
+                #very lenient SNR requirement
+                if snr > 1:  #just above noise
                     filtered_return = RadarReturn(
                         range_km=radar_return.range_km,
                         bearing_deg=radar_return.bearing_deg,
@@ -213,24 +236,24 @@ def test_signal_processing():
     
     processor = SignalProcessor()
     
-    # Test 1: Noise addition
+    #test 1: noise addition:
     print("\n1. Testing noise addition:")
     clean_signal = 0.8
     for i in range(5):
         noisy = processor.add_noise_to_signal(clean_signal, noise_level=0.1)
         print(f"   Clean: {clean_signal:.3f} → Noisy: {noisy:.3f}")
     
-    # Test 2: Moving average filter
+    #test 2: moving average filter:
     print("\n2. Testing moving average filter:")
     noisy_signals = [0.1, 0.8, 0.2, 0.9, 0.15, 0.85, 0.25, 0.95]
     filtered = processor.moving_average_filter(noisy_signals, window_size=3)
     print(f"   Original:  {[f'{x:.2f}' for x in noisy_signals]}")
     print(f"   Filtered:  {[f'{x:.2f}' for x in filtered]}")
     
-    # Test 3: Radar range equation
+    #test 3: radar range equation:
     print("\n3. Testing radar range equation:")
     test_ranges = [50, 100, 150, 200]
-    test_rcs = [20, 100, 500]  # aircraft, large aircraft, ship
+    test_rcs = [20, 100, 500]  #aircraft, large aircraft, ship
     
     for rcs in test_rcs:
         print(f"\n   Target RCS: {rcs} m²")
@@ -238,7 +261,7 @@ def test_signal_processing():
             strength = processor.radar_range_equation(rcs, range_km)
             print(f"     {range_km:3d} km: {strength:.4f}")
     
-    # Test 4: SNR calculation
+    #test 4: SNR calculation:
     print("\n4. Testing SNR calculation:")
     test_signals = [0.8, 0.4, 0.2, 0.1]
     noise = 0.05
