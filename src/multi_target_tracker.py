@@ -421,3 +421,64 @@ def test_multi_target_tracker():
     
     return tracker, all_tracks_history
 
+def plot_multi_target_results(tracks_history):
+    """Plot multi-target tracking results"""
+    import matplotlib.pyplot as plt
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Collect all unique track IDs
+    all_track_ids = set()
+    for step_tracks in tracks_history:
+        all_track_ids.update(step_tracks.keys())
+    
+    # Colors for different tracks
+    colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown']
+    track_colors = {tid: colors[i % len(colors)] for i, tid in enumerate(sorted(all_track_ids))}
+    
+    # Plot each track
+    for track_id in all_track_ids:
+        x_positions = []
+        y_positions = []
+        
+        for step_tracks in tracks_history:
+            if track_id in step_tracks:
+                x_positions.append(step_tracks[track_id]['x'])
+                y_positions.append(step_tracks[track_id]['y'])
+            else:
+                # Track not present, add None to break line
+                x_positions.append(None)
+                y_positions.append(None)
+        
+        # Remove None values for plotting
+        valid_x = [x for x in x_positions if x is not None]
+        valid_y = [y for y in y_positions if y is not None]
+        
+        if valid_x and valid_y:
+            color = track_colors[track_id]
+            ax.plot(valid_x, valid_y, 'o-', color=color, linewidth=2, 
+                    markersize=6, label=f'{track_id}', alpha=0.8)
+            
+            # Mark start and end
+            ax.plot(valid_x[0], valid_y[0], 's', color=color, markersize=10, 
+                    markeredgecolor='black', markeredgewidth=2)
+            ax.plot(valid_x[-1], valid_y[-1], '^', color=color, markersize=10,
+                    markeredgecolor='black', markeredgewidth=2)
+    
+    ax.set_xlabel('X Position (km)', fontsize=12)
+    ax.set_ylabel('Y Position (km)', fontsize=12)
+    ax.set_title('Multi-Target Tracking Results', fontsize=14, weight='bold')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.axis('equal')
+    
+    # Add legend for markers
+    ax.text(0.02, 0.98, '□ Start  △ End', transform=ax.transAxes, 
+            fontsize=10, verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    test_multi_target_tracker()
