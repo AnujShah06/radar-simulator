@@ -5,8 +5,8 @@ import numpy as np
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field
 import time
-from kalman_filter import KalmanFilter, TrackState
-from target_detection import DetectedTarget
+from src.kalman_filter import KalmanFilter, TrackState
+from src.target_detection import DetectedTarget
 
 @dataclass
 class Track:

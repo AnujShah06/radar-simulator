@@ -58,9 +58,9 @@ class IntegratedTrackingSystem:
         # Update sweep angle
         self.sweep_angle = (self.sweep_angle + self.sweep_rate) % 360
         
-        # Simulate radar detection  
+        # Simulate radar detection 
         raw_detections = self.data_generator.simulate_radar_detection(
-            self.sweep_angle, sweep_width_deg=45  # Much wider beam
+            self.sweep_angle, sweep_width_deg=60  # Much wider beam
         )
         
         # Process detections through signal processing and detection pipeline

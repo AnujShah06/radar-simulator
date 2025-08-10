@@ -4,7 +4,7 @@ Target detection and classification algorithms
 import numpy as np
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
-from signal_processing import RadarReturn, SignalProcessor
+from src.signal_processing import RadarReturn, SignalProcessor
 import random
 
 @dataclass
