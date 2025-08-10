@@ -293,4 +293,131 @@ class MultiTargetTracker:
         return [track for track in self.tracks.values() 
                 if track.confirmed and not track.terminated]
     
+    def get_tracking_statistics(self) -> Dict:
+        """Get tracking system statistics"""
+        confirmed_tracks = self.get_confirmed_tracks()
+        
+        stats = {
+            "total_tracks": len(self.tracks),
+            "confirmed_tracks": len(confirmed_tracks),
+            "tentative_tracks": len([t for t in self.tracks.values() 
+                                   if not t.confirmed and not t.terminated]),
+            "terminated_tracks": len([t for t in self.tracks.values() if t.terminated]),
+            "total_created": self.total_tracks_created,
+            "total_terminated": self.total_tracks_terminated,
+            "average_quality": np.mean([t.quality_score for t in confirmed_tracks]) if confirmed_tracks else 0.0
+        }
+        
+        if confirmed_tracks:
+            stats["classification_breakdown"] = {}
+            for track in confirmed_tracks:
+                cls = track.classification
+                stats["classification_breakdown"][cls] = stats["classification_breakdown"].get(cls, 0) + 1
+        
+        return stats
+
+# Test the multi-target tracker
+def test_multi_target_tracker():
+    """Test multi-target tracking with simulated detections"""
+    print("Testing Multi-Target Tracker")
+    print("=" * 40)
     
+    tracker = MultiTargetTracker()
+    
+    # Simulate multiple targets over time
+    def create_mock_detection(target_id: str, x: float, y: float, classification: str = "aircraft") -> DetectedTarget:
+        range_km = np.sqrt(x*x + y*y)
+        bearing_deg = np.degrees(np.arctan2(x, y)) % 360
+        
+        return DetectedTarget(
+            id=f"DET_{target_id}",
+            range_km=range_km,
+            bearing_deg=bearing_deg,
+            signal_strength=0.8,
+            snr_db=10.0,
+            doppler_shift=100.0,
+            classification=classification,
+            confidence=0.8,
+            timestamp=0.0,
+            raw_returns=[]
+        )
+    
+    print("\nSimulating 3 targets over 15 time steps:")
+    print("  Target A: Moving east (aircraft)")
+    print("  Target B: Moving northeast (ship)")  
+    print("  Target C: Appears at step 5, moving north (aircraft)")
+    
+    all_tracks_history = []
+    
+    for t in range(15):
+        timestamp = float(t)
+        detections = []
+        
+        # Target A: Moving east at 20 km/h
+        if t < 12:  # Disappears after step 11
+            target_a_x = t * 5.0  # 5 km per step
+            target_a_y = 50.0
+            # Add some noise
+            noise_x = np.random.normal(0, 0.5)
+            noise_y = np.random.normal(0, 0.5)
+            detections.append(create_mock_detection("A", target_a_x + noise_x, target_a_y + noise_y, "aircraft"))
+        
+        # Target B: Moving northeast at 15 km/h
+        if t < 10:  # Disappears after step 9
+            target_b_x = 20.0 + t * 3.0
+            target_b_y = 20.0 + t * 3.0
+            noise_x = np.random.normal(0, 0.5)
+            noise_y = np.random.normal(0, 0.5)
+            detections.append(create_mock_detection("B", target_b_x + noise_x, target_b_y + noise_y, "ship"))
+        
+        # Target C: Appears at step 5, moving north
+        if t >= 5:
+            target_c_x = 80.0
+            target_c_y = 30.0 + (t - 5) * 4.0
+            noise_x = np.random.normal(0, 0.5)
+            noise_y = np.random.normal(0, 0.5)
+            detections.append(create_mock_detection("C", target_c_x + noise_x, target_c_y + noise_y, "aircraft"))
+        
+        # Update tracker
+        print(f"\nStep {t+1}: {len(detections)} detections")
+        active_tracks = tracker.update(detections, timestamp)
+        
+        # Store track states for visualization
+        track_states = {}
+        for track_id, track in active_tracks.items():
+            if track.confirmed:
+                track_states[track_id] = {
+                    'x': track.state.x,
+                    'y': track.state.y,
+                    'classification': track.classification,
+                    'quality': track.quality_score
+                }
+        all_tracks_history.append(track_states)
+        
+        # Print active tracks
+        confirmed_tracks = [t for t in active_tracks.values() if t.confirmed]
+        print(f"  Active tracks: {len(confirmed_tracks)}")
+        for track in confirmed_tracks:
+            print(f"    {track.id}: ({track.state.x:6.1f}, {track.state.y:6.1f}) "
+                    f"{track.classification} quality={track.quality_score:.2f}")
+    
+    # Final statistics
+    stats = tracker.get_tracking_statistics()
+    print(f"\nFinal Tracking Statistics:")
+    print(f"  Total tracks created: {stats['total_created']}")
+    print(f"  Confirmed tracks: {stats['confirmed_tracks']}")
+    print(f"  Terminated tracks: {stats['total_terminated']}")
+    print(f"  Average track quality: {stats['average_quality']:.2f}")
+    
+    if 'classification_breakdown' in stats:
+        print("  Classification breakdown:")
+        for cls, count in stats['classification_breakdown'].items():
+            print(f"    {cls}: {count}")
+    
+    # Plot tracking results
+    plot_multi_target_results(all_tracks_history)
+    
+    print("\n✅ Multi-target tracking test complete!")
+    
+    return tracker, all_tracks_history
+
