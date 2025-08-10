@@ -178,4 +178,119 @@ class MultiTargetTracker:
         
         return distance
     
+    def update_associated_tracks(self, associations: Dict[str, DetectedTarget], timestamp: float):
+        """Update tracks that have associated detections"""
+        for track_id, detection in associations.items():
+            track = self.tracks[track_id]
+            
+            # Convert detection to measurement
+            det_x = detection.range_km * np.sin(np.radians(detection.bearing_deg))
+            det_y = detection.range_km * np.cos(np.radians(detection.bearing_deg))
+            measurement = (det_x, det_y)
+            
+            # Update Kalman filter
+            updated_state = track.kalman_filter.update(measurement)
+            updated_state.timestamp = timestamp
+            track.state = updated_state
+            
+            # Update track metrics
+            track.hits += 1
+            track.last_update = timestamp
+            track.detections.append(detection)
+            
+            # Keep only recent detections (last 10)
+            if len(track.detections) > 10:
+                track.detections = track.detections[-10:]
+            
+            # Check for track confirmation
+            if not track.confirmed and track.hits >= self.min_hits_for_confirmation:
+                track.confirmed = True
+                print(f"  Track {track_id} CONFIRMED (hits={track.hits})")
+    
+    def handle_missed_detections(self):
+        """Handle tracks that didn't get associated detections"""
+        for track in self.tracks.values():
+            if not track.terminated and track.last_update < self.current_time:
+                track.misses += 1
+                
+                # Check for track termination
+                if track.misses >= self.max_missed_detections:
+                    track.terminated = True
+                    self.total_tracks_terminated += 1
+                    print(f"  Track {track.id} TERMINATED (misses={track.misses})")
+    
+    def initialize_new_tracks(self, detections: List[DetectedTarget], timestamp: float):
+        """Initialize new tracks from unassociated detections"""
+        for detection in detections:
+            # Convert to Cartesian coordinates
+            det_x = detection.range_km * np.sin(np.radians(detection.bearing_deg))
+            det_y = detection.range_km * np.cos(np.radians(detection.bearing_deg))
+            
+            # Create new Kalman filter
+            kf = KalmanFilter(dt=1.0)
+            kf.initialize_state((det_x, det_y), velocity=None)
+            
+            # Create new track
+            track_id = f"TRK_{self.track_id_counter:03d}"
+            self.track_id_counter += 1
+            
+            initial_state = TrackState(
+                x=det_x, y=det_y, vx=0.0, vy=0.0, timestamp=timestamp
+            )
+            
+            track = Track(
+                id=track_id,
+                kalman_filter=kf,
+                state=initial_state,
+                detections=[detection],
+                hits=1,
+                last_update=timestamp,
+                classification=detection.classification,
+                classification_confidence=detection.confidence
+            )
+            
+            self.tracks[track_id] = track
+            self.total_tracks_created += 1
+            
+            print(f"  New track {track_id} initialized at ({det_x:.1f}, {det_y:.1f})")
+    
+    def manage_track_lifecycle(self):
+        """Manage track lifecycle (aging, termination)"""
+        current_time = self.current_time
+        
+        for track in self.tracks.values():
+            if not track.terminated:
+                # Update age
+                track.age = current_time - (track.last_update - track.age)
+                
+                # Terminate old tracks without updates
+                time_since_update = current_time - track.last_update
+                if time_since_update > self.max_track_age_without_update:
+                    track.terminated = True
+                    self.total_tracks_terminated += 1
+                    print(f"  Track {track.id} AGED OUT (no update for {time_since_update:.1f}s)")
+    
+    def update_track_classifications(self):
+        """Update track classifications based on detection history"""
+        for track in self.tracks.values():
+            if track.confirmed and len(track.detections) >= 3:
+                # Majority vote classification from recent detections
+                recent_classifications = [d.classification for d in track.detections[-5:]]
+                classification_counts = {}
+                
+                for cls in recent_classifications:
+                    classification_counts[cls] = classification_counts.get(cls, 0) + 1
+                
+                if classification_counts:
+                    best_classification = max(classification_counts, key=classification_counts.get)
+                    confidence = classification_counts[best_classification] / len(recent_classifications)
+                    
+                    track.classification = best_classification
+                    track.classification_confidence = confidence
+    
+    def get_confirmed_tracks(self) -> List[Track]:
+        """Get list of confirmed, active tracks"""
+        return [track for track in self.tracks.values() 
+                if track.confirmed and not track.terminated]
+    
     
