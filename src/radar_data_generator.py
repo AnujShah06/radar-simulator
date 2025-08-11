@@ -1,5 +1,9 @@
 """
-Realistic radar data generation for simulation scenarios
+Realistic radar data generation for simulation scenarios - FIXED VERSION
+Key fixes:
+1. Added proper doppler shift calculation
+2. Fixed velocity units (km/h -> km/s conversion)
+3. Improved airport scenario target positioning
 """
 import numpy as np
 import random
@@ -65,12 +69,12 @@ class RadarDataGenerator:
         
     def add_aircraft(self, x, y, heading, speed_kmh, aircraft_type="commercial"):
         """Add an aircraft target"""
-        #different aircraft have different radar signatures
+        #different aircraft have different radar signatures - FIXED TO REALISTIC VALUES
         rcs_values = {
-            "commercial": 100.0,  #large airliner
-            "fighter": 5.0,       #stealth fighter
-            "cessna": 2.0,        #small aircraft
-            "bomber": 40.0        #large military aircraft
+            "commercial": 50.0,   # FIXED: Was 100, now realistic 50 m²
+            "fighter": 5.0,       # stealth fighter
+            "cessna": 2.0,        # small aircraft
+            "bomber": 40.0        # large military aircraft
         }
         
         target = RadarTarget(
@@ -104,6 +108,7 @@ class RadarDataGenerator:
         )
         self.targets.append(target)
         return target
+        
     def update_targets(self, time_step_seconds=1.0):
         """Update all target positions based on their velocities"""
         self.time_elapsed += time_step_seconds
@@ -138,7 +143,7 @@ class RadarDataGenerator:
         self.targets = [t for t in self.targets if t.range_km <= self.max_range_km * 1.2]
 
     def simulate_radar_detection(self, sweep_angle_deg, sweep_width_deg=10):
-        """Simulate which targets would be detected by radar sweep"""
+        """Simulate which targets would be detected by radar sweep - FIXED WITH DOPPLER"""
         detected_targets = []
         
         for target in self.targets:
@@ -149,12 +154,16 @@ class RadarDataGenerator:
                 detection_prob = self.calculate_detection_probability(target)
                 
                 if random.random() < detection_prob:
+                    # FIXED: Calculate realistic doppler shift
+                    doppler_shift = self.calculate_doppler_shift(target)
+                    
                     detected_targets.append({
                         'target': target,
                         'range': target.range_km + np.random.normal(0, 0.5),  # Add noise
                         'bearing': target.bearing_deg + np.random.normal(0, 0.2),  # Add noise
                         'signal_strength': detection_prob,
-                        'detection_time': self.time_elapsed
+                        'detection_time': self.time_elapsed,
+                        'doppler_shift': doppler_shift  # ADDED: Doppler information
                     })
         
         #Add false alarms
@@ -169,10 +178,44 @@ class RadarDataGenerator:
                 'bearing': false_bearing,
                 'signal_strength': random.uniform(0.3, 0.7),
                 'detection_time': self.time_elapsed,
-                'is_false_alarm': True
+                'is_false_alarm': True,
+                'doppler_shift': 0.0  # ADDED: No doppler for false alarms
             })
         
         return detected_targets
+
+    def calculate_doppler_shift(self, target):
+        """ADDED: Calculate realistic doppler shift for a target"""
+        if not target:
+            return 0.0
+            
+        # Convert velocity from km/h to m/s
+        vx_ms = target.velocity_x * 1000 / 3600  # km/h to m/s
+        vy_ms = target.velocity_y * 1000 / 3600  # km/h to m/s
+        
+        # Target position
+        target_range = target.range_km * 1000  # Convert to meters
+        if target_range == 0:
+            return 0.0
+            
+        # Unit vector from radar to target
+        target_x_m = target.position_x * 1000  # Convert to meters
+        target_y_m = target.position_y * 1000  # Convert to meters
+        
+        # Radial velocity (component of velocity toward/away from radar)
+        # Positive = moving away, Negative = moving toward
+        radial_velocity = (vx_ms * target_x_m + vy_ms * target_y_m) / target_range
+        
+        # Doppler shift calculation: f_d = 2 * v_r * f_0 / c
+        # For 10 GHz radar: f_0 = 10e9 Hz, c = 3e8 m/s
+        radar_frequency = 10e9  # 10 GHz
+        speed_of_light = 3e8    # m/s
+        
+        doppler_frequency = 2 * radial_velocity * radar_frequency / speed_of_light
+        
+        # Return doppler as velocity equivalent for easier interpretation
+        # Convert back to m/s: v_doppler = f_d * c / (2 * f_0) = radial_velocity
+        return radial_velocity  # m/s (positive = moving away, negative = toward)
 
     def calculate_detection_probability(self, target):
         """Calculate probability of detecting a target based on realistic factors"""
@@ -245,32 +288,40 @@ class RadarDataGenerator:
             self.targets.append(weather_target)
 
     def create_scenario(self, scenario_name: str):
-        """Create pre-defined realistic scenarios"""
+        """Create pre-defined realistic scenarios - FIXED FOR BETTER POSITIONING"""
         self.targets = []  #clear existing targets
         
         if scenario_name == "busy_airport":
             self.set_environment(EnvironmentType.CLEAR)
             
-            for i in range(5):
+            # FIXED: Create targets at more realistic distances
+            # Close approach traffic (30-60km)
+            for i in range(3):
+                distance = random.uniform(30, 60)  # FIXED: was -10 to 10
+                angle = random.uniform(0, 360)
+                x = distance * np.sin(np.radians(angle))
+                y = distance * np.cos(np.radians(angle))
+                
                 self.add_aircraft(
-                    x=random.uniform(-10, 10),
-                    y=random.uniform(-10, 10),
+                    x=x, y=y,
                     heading=random.uniform(0, 360),
-                    speed_kmh=random.uniform(200, 600),
+                    speed_kmh=random.uniform(250, 450),  # FIXED: Approach speeds
                     aircraft_type="commercial"
                 )
             
+            # Distant traffic (80-150km)
             for i in range(3):
-                distance = random.uniform(100, 180)
+                distance = random.uniform(80, 150)  # FIXED: More realistic distances
                 angle = random.uniform(0, 360)
-                x = distance * np.cos(np.radians(angle))
-                y = distance * np.sin(np.radians(angle))
+                x = distance * np.sin(np.radians(angle))
+                y = distance * np.cos(np.radians(angle))
                 
+                # Heading generally toward airport (center)
                 heading_to_center = (np.degrees(np.arctan2(-x, -y)) + 180) % 360
                 heading_variation = random.uniform(-30, 30)
                 heading = (heading_to_center + heading_variation) % 360
                 
-                self.add_aircraft(x, y, heading, random.uniform(400, 800), "commercial")
+                self.add_aircraft(x, y, heading, random.uniform(500, 800), "commercial")
         
         elif scenario_name == "naval_operations":
             self.set_environment(EnvironmentType.CLEAR)
@@ -319,6 +370,10 @@ def test_complete_system():
     generator.create_scenario("busy_airport")
     print(f"Busy Airport: {len(generator.targets)} targets generated")
     
+    # ADDED: Show target positions for verification
+    for target in generator.targets:
+        print(f"  {target.id}: {target.range_km:.1f}km, {target.speed:.0f}km/h, RCS:{target.radar_cross_section:.1f}m²")
+    
     print("\n=== Testing Target Movement ===")
     initial_positions = [(t.position_x, t.position_y) for t in generator.targets[:3]]
     generator.update_targets(time_step_seconds=60)  # 1 minute
@@ -338,7 +393,8 @@ def test_complete_system():
             print(f"  FALSE ALARM at {detection['range']:.1f}km, {detection['bearing']:.1f}°")
         else:
             target = detection['target']
-            print(f"  {target.id}: {detection['range']:.1f}km, {detection['bearing']:.1f}°")
+            doppler = detection.get('doppler_shift', 0)
+            print(f"  {target.id}: {detection['range']:.1f}km, {detection['bearing']:.1f}°, Doppler: {doppler:.1f}m/s")
 
 if __name__ == "__main__":
     test_complete_system()
