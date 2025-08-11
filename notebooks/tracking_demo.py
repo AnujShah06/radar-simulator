@@ -12,7 +12,6 @@ import time
 
 def quick_demo():
     """Quick demonstration of the tracking system"""
-    print("🎯 DAY 5 TRACKING SYSTEM DEMO")
     print("=" * 50)
     print()
     print("This demo showcases your complete radar tracking system:")
@@ -170,10 +169,10 @@ def main():
     if choice == "1":
         quick_demo()
     elif choice == "2":
-        from notebooks.day5_performance_analysis import main as perf_main
+        from performance_analysis import main as perf_main
         perf_main()
     elif choice == "3":
-        from notebooks.day5_performance_analysis import test_tracking_accuracy
+        from performance_analysis import test_tracking_accuracy
         test_tracking_accuracy()
     else:
         print("Invalid choice, running quick demo...")
