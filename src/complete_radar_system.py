@@ -68,7 +68,7 @@ class ProfessionalRadarDemo:
         """Setup professional radar display"""
         plt.style.use('dark_background')
         self.fig = plt.figure(figsize=(18, 10))
-        self.fig.suptitle('PROFESSIONAL RADAR SYSTEM - ENHANCED DAY 6 VERSION', 
+        self.fig.suptitle('PROFESSIONAL RADAR SYSTEM', 
                          fontsize=16, color='#00ff00', weight='bold')
         self.fig.patch.set_facecolor('#000000')
         
@@ -619,7 +619,7 @@ Uptime:     {hours:02d}:{mins:02d}:{secs:02d}"""
         plt.show()
 
 def main():
-    """Run the enhanced Day 6 demonstration"""
+    """Run demonstration"""
     demo = ProfessionalRadarDemo()
     demo.run()
 
