@@ -1,6 +1,11 @@
 """
 Multi-target tracking system using Kalman filters
 """
+
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field

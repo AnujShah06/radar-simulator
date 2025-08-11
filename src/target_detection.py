@@ -29,7 +29,7 @@ class TargetDetector:
         self.target_id_counter = 1
         
         #detection parameters
-        self.min_detections_for_confirmation = 3
+        self.min_detections_for_confirmation = 1
         self.max_time_between_detections = 10.0  #seconds
         self.association_distance_threshold = 5.0  #km
         
