@@ -179,85 +179,85 @@ class ProfessionalRadarControls:
                bbox=dict(boxstyle='round', facecolor='black', edgecolor=readiness_color, linewidth=2))
         
     def create_radar_controls(self):
-        """Clean radar parameter controls"""
+        """Clean radar parameter controls with proper internal spacing"""
         ax = self.radar_ax
         ax.clear()
         ax.set_xlim(0, 10)
         ax.set_ylim(0, 10)
-        ax.set_title('RADAR PARAMETERS', color='#00FF00', weight='bold')
+        ax.set_title('RADAR PARAMETERS', color='#00FF00', weight='bold', fontsize=12)
         ax.axis('off')
         
-        # Display current values as text
+        # Display current values with better spacing
         params_text = f"""CURRENT SETTINGS:
 
 Max Range: {self.config.max_range_km:.0f} km
-Sweep Rate: {self.config.sweep_rate_rpm:.0f} RPM  
-Sensitivity: {self.config.sensitivity_db:.0f} dB
-Threshold: {self.config.detection_threshold:.1f} dB
 
-FILTERS:
-Clutter Map: {'ON' if self.config.clutter_map_enable else 'OFF'}
-Weather Filter: {'ON' if self.config.weather_filter_enable else 'OFF'}"""
+Sweep Rate: {self.config.sweep_rate_rpm:.0f} RPM
+
+Sensitivity: {self.config.sensitivity_db:.0f} dB
+
+Detection: {self.config.detection_threshold:.1f} dB"""
         
-        ax.text(5, 7, params_text, ha='center', va='top',
-               color='#00AAFF', fontsize=10, family='monospace',
+        ax.text(5, 8.5, params_text, ha='center', va='top',
+               color='#00AAFF', fontsize=11, family='monospace',
                bbox=dict(boxstyle='round', facecolor='#1a1a1a', 
                         alpha=0.9, edgecolor='#00AAFF'))
         
-        # Simple control buttons
+        # Control buttons with better spacing
         control_buttons = [
-            (2.5, 3, 'RANGE\n+', self.increase_range),
-            (2.5, 2, 'RANGE\n-', self.decrease_range),
-            (7.5, 3, 'SENS\n+', self.increase_sensitivity),
-            (7.5, 2, 'SENS\n-', self.decrease_sensitivity)
+            (2.5, 3.5, 'RANGE\n+', self.increase_range),
+            (2.5, 2.5, 'RANGE\n-', self.decrease_range),
+            (7.5, 3.5, 'SENS\n+', self.increase_sensitivity),
+            (7.5, 2.5, 'SENS\n-', self.decrease_sensitivity)
         ]
         
         for x, y, label, callback in control_buttons:
             rect = Rectangle((x-0.8, y-0.4), 1.6, 0.8, 
-                           facecolor='#333333', edgecolor='#00FF00', linewidth=1)
+                           facecolor='#333333', edgecolor='#00FF00', linewidth=1.5)
             ax.add_patch(rect)
             ax.text(x, y, label, ha='center', va='center', 
-                   color='#00FF00', fontsize=8, weight='bold')
+                   color='#00FF00', fontsize=9, weight='bold')
             
     def create_mode_controls(self):
-        """Clean mode controls"""
+        """Clean mode controls with better internal spacing"""
         ax = self.mode_ax
         ax.clear()
         ax.set_xlim(0, 10)
         ax.set_ylim(0, 10)
-        ax.set_title('RADAR MODE', color='#00FF00', weight='bold')
+        ax.set_title('RADAR MODE', color='#00FF00', weight='bold', fontsize=12)
         ax.axis('off')
         
-        # Current mode display
+        # Current mode display with better spacing
         mode_text = f"""CURRENT MODE:
+
 {self.config.radar_mode.value.upper()}
 
-TRACK STATUS:
-Active: {self.performance_metrics['tracks_active']:3d}
-Capacity: {self.performance_metrics['track_capacity']:3d}
-Load: {(self.performance_metrics['tracks_active']/self.performance_metrics['track_capacity']*100):5.1f}%
 
-PERFORMANCE:
-Processor: {self.performance_metrics['processor_load_percent']:5.1f}%
-Uptime: {self.performance_metrics['uptime_hours']:6.1f}h"""
+TRACK STATUS:
+
+Active: {self.performance_metrics['tracks_active']:3d}
+
+Capacity: {self.performance_metrics['track_capacity']:3d}
+
+Load: {(self.performance_metrics['tracks_active']/self.performance_metrics['track_capacity']*100):5.1f}%"""
         
-        ax.text(5, 8, mode_text, ha='center', va='top',
-               color='#00FF00', fontsize=10, family='monospace',
+        ax.text(5, 9, mode_text, ha='center', va='top',
+               color='#00FF00', fontsize=11, family='monospace',
                bbox=dict(boxstyle='round', facecolor='#0f0f0f', 
                         alpha=0.9, edgecolor='#00FF00'))
         
-        # Mode selection buttons
+        # Mode selection buttons with better spacing
         modes = ['SEARCH', 'TRACK', 'TWS']
         for i, mode in enumerate(modes):
-            x, y = 2 + i * 2, 2
+            x, y = 1.5 + i * 2.5, 2.5  # Better horizontal spacing
             is_active = mode == self.config.radar_mode.value.upper()
             color = '#00FF00' if is_active else '#666666'
             
-            rect = Rectangle((x-0.8, y-0.4), 1.6, 0.8, 
+            rect = Rectangle((x-0.8, y-0.5), 1.6, 1.0, 
                            facecolor=color, alpha=0.3, edgecolor=color, linewidth=2)
             ax.add_patch(rect)
             ax.text(x, y, mode, ha='center', va='center', 
-                   color=color, fontsize=9, weight='bold')
+                   color=color, fontsize=10, weight='bold')
         
     def create_display_controls(self):
         """Clean display controls"""
