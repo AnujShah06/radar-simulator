@@ -357,4 +357,179 @@ class Day6CompleteDemo:
                 alpha = max(0.1, 1.0 - age / trail_duration)
                 ax.plot([b1, b2], [r1, r2], color=color, alpha=alpha, linewidth=1)
     
+    def update_all_panels(self):
+        """Update all information panels"""
+        self.update_system_status()
+        self.update_track_info()
+        self.update_performance_panel()
+        self.update_control_panel()
+        self.update_alerts_panel()
+        self.update_timeline_panel()
+        self.update_info_bar()
+        
+    def update_static_panels(self):
+        """Update panels when system is not running"""
+        self.update_control_panel()
+        self.update_info_bar()
+        
+    def update_system_status(self):
+        """Update system status panel"""
+        ax = self.axes['status']
+        ax.clear()
+        ax.set_title('SYSTEM STATUS', color='#00ff00', fontsize=10, weight='bold')
+        
+        status_text = f"""
+RADAR: {'ACTIVE' if self.is_running else 'STANDBY'}
+MODE: SEARCH & TRACK
+RANGE: 200 km
+SWEEP: {self.sweep_angle:.1f}°
+
+HEALTH: {self.metrics['system_health']}
+UPTIME: {self.current_time:.0f}s
+CPU: {self.metrics['cpu_usage']:.1f}%
+MEM: {self.metrics['memory_usage']:.1f}%
+        """.strip()
+        
+        ax.text(0.05, 0.95, status_text, transform=ax.transAxes, 
+               color='#00ff00', fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+        
+    def update_track_info(self):
+        """Update track information panel"""
+        ax = self.axes['tracks']
+        ax.clear()
+        ax.set_title('ACTIVE TRACKS', color='#00ff00', fontsize=10, weight='bold')
+        
+        tracks = self.tracker.get_confirmed_tracks()
+        
+        if tracks:
+            track_text = f"CONFIRMED: {len(tracks)}\n\n"
+            for i, track in enumerate(tracks[:6]):  # Show first 6 tracks
+                track_text += f"T{track.id:03d}: {track.classification[:4].upper()}\n"
+                track_text += f"  RNG: {np.sqrt(track.state.x**2 + track.state.y**2):.1f}km\n"
+                track_text += f"  SPD: {track.state.speed_kmh:.0f}kt\n"
+                if i < 5:  # Don't add newline after last track
+                    track_text += "\n"
+        else:
+            track_text = "NO CONFIRMED TRACKS"
+            
+        ax.text(0.05, 0.95, track_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=8, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+        
+    def update_performance_panel(self):
+        """Update performance metrics panel"""
+        ax = self.axes['performance']
+        ax.clear()
+        ax.set_title('PERFORMANCE', color='#00ff00', fontsize=10, weight='bold')
+        
+        if self.metrics['processing_times']:
+            avg_time = np.mean(self.metrics['processing_times'][-20:])
+            max_time = np.max(self.metrics['processing_times'][-20:])
+        else:
+            avg_time = max_time = 0
+            
+        perf_text = f"""
+DETECTIONS: {self.metrics['detections_count']}
+TRACKS: {self.metrics['tracks_created']}
+
+PROCESSING:
+  AVG: {avg_time:.1f}ms
+  MAX: {max_time:.1f}ms
+  
+REALTIME: {'✓' if avg_time < 100 else '✗'}
+        """.strip()
+        
+        ax.text(0.05, 0.95, perf_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+        
+    def update_control_panel(self):
+        """Update control panel with buttons"""
+        ax = self.axes['controls']
+        ax.clear()
+        ax.set_title('CONTROLS', color='#00ff00', fontsize=10, weight='bold')
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        
+        # Control buttons
+        buttons = [
+            ('START', (2, 7.5, 6, 1.5), '#006600' if not self.is_running else '#333333'),
+            ('STOP', (2, 5.5, 6, 1.5), '#660000' if self.is_running else '#333333'),
+            ('RESET', (2, 3.5, 6, 1.5), '#444444'),
+            ('E-STOP', (2, 1.5, 6, 1.5), '#880000')
+        ]
+        
+        for label, (x, y, w, h), color in buttons:
+            rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.1",
+                                facecolor=color, edgecolor='#00ff00', linewidth=1)
+            ax.add_patch(rect)
+            ax.text(x + w/2, y + h/2, label, ha='center', va='center',
+                   color='#00ff00', fontsize=10, weight='bold')
+        
+        ax.axis('off')
+        
+    def update_alerts_panel(self):
+        """Update alerts and notifications panel"""
+        ax = self.axes['alerts']
+        ax.clear()
+        ax.set_title('ALERTS', color='#00ff00', fontsize=10, weight='bold')
+        
+        alert_text = "SYSTEM NORMAL\n\n"
+        
+        # Check for alerts
+        if self.is_running:
+            tracks = self.tracker.get_confirmed_tracks()
+            if len(tracks) > 10:
+                alert_text += "⚠️ HIGH TRAFFIC\n"
+            if self.metrics['processing_times'] and np.mean(self.metrics['processing_times'][-5:]) > 50:
+                alert_text += "⚠️ HIGH CPU LOAD\n"
+        
+        ax.text(0.05, 0.95, alert_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+        
+    def update_timeline_panel(self):
+        """Update timeline/history panel"""
+        ax = self.axes['timeline']
+        ax.clear()
+        ax.set_title('TIMELINE', color='#00ff00', fontsize=10, weight='bold')
+        
+        timeline_text = f"""
+{datetime.now().strftime('%H:%M:%S')}
+SYSTEM {'ACTIVE' if self.is_running else 'STANDBY'}
+
+RECENT EVENTS:
+{'• Tracking active' if self.is_running else '• System ready'}
+• {len(self.data_generator.targets)} targets loaded
+• Demo scenario active
+        """.strip()
+        
+        ax.text(0.05, 0.95, timeline_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=8, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+        
+    def update_info_bar(self):
+        """Update bottom information bar"""
+        ax = self.axes['info']
+        ax.clear()
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 1)
+        
+        info_text = ("DAY 6 COMPLETE DEMO: Professional Radar System | "
+                    f"Time: {self.current_time:.1f}s | "
+                    f"Sweep: {self.sweep_angle:.1f}° | "
+                    f"Targets: {len(self.data_generator.targets)} | "
+                    f"Tracks: {len(self.tracker.get_confirmed_tracks())} | "
+                    "Status: Production Ready ✅")
+        
+        ax.text(5, 0.5, info_text, ha='center', va='center',
+               color='#00ff00', fontsize=10, weight='bold')
+        ax.axis('off')
+    
     
