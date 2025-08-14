@@ -149,3 +149,212 @@ class Day6CompleteDemo:
         ax.set_rticks([])
         ax.set_thetagrids([])
         
+    def load_demo_scenario(self):
+        """Load a comprehensive demonstration scenario"""
+        print("📡 Loading comprehensive demo scenario...")
+        
+        # Commercial aviation (busy airport environment)
+        aircraft_positions = [
+            (-50, 80, 270, 450),   # Westbound heavy
+            (30, 120, 180, 520),   # Southbound heavy  
+            (-80, -60, 45, 380),   # Northeast light
+            (60, -40, 315, 420),   # Northwest medium
+            (-120, 20, 90, 480),   # Eastbound heavy
+            (90, 90, 225, 360),    # Southwest medium
+            (-30, -120, 0, 400),   # Northbound heavy
+            (140, -20, 270, 340)   # Westbound light
+        ]
+        
+        for x, y, heading, speed in aircraft_positions:
+            self.data_generator.add_aircraft(x, y, heading, speed)
+            
+        # Naval vessels (coastal operations)
+        ship_positions = [
+            (-90, -150, 45, 25),   # Naval vessel
+            (70, -180, 315, 18),   # Merchant ship
+            (-40, -170, 90, 12),   # Fishing vessel
+            (110, -140, 225, 22)   # Coast guard
+        ]
+        
+        for x, y, heading, speed in ship_positions:
+            self.data_generator.add_ship(x, y, heading, speed)
+            
+        # Weather phenomena
+        self.data_generator.add_weather_returns(-60, 40, 35)  # Storm cell
+        self.data_generator.add_weather_returns(80, 130, 25)  # Rain shower
+        
+        print(f"✅ Loaded {len(self.data_generator.targets)} targets:")
+        aircraft_count = sum(1 for t in self.data_generator.targets if t.target_type == 'aircraft')
+        ship_count = sum(1 for t in self.data_generator.targets if t.target_type == 'ship')
+        weather_count = sum(1 for t in self.data_generator.targets if t.target_type == 'weather')
+        print(f"   • {aircraft_count} aircraft (commercial & military)")
+        print(f"   • {ship_count} ships (naval & civilian)")
+        print(f"   • {weather_count} weather phenomena")
+        
+    def animate(self, frame):
+        """Main animation function - the heart of the radar system"""
+        if not self.is_running:
+            self.update_static_panels()
+            return []
+            
+        start_time = time.time()
+        
+        # Update system time and sweep
+        self.current_time += 0.1
+        self.sweep_angle = (self.sweep_angle + self.sweep_rate) % 360
+        self.update_count += 1
+        
+        # Update target positions
+        self.data_generator.update_targets(0.1)
+        
+        # Radar sweep detection (professional sweep-based processing)
+        sweep_width = 15.0  # 15-degree sweep beam
+        sweep_start = (self.sweep_angle - sweep_width/2) % 360
+        sweep_end = (self.sweep_angle + sweep_width/2) % 360
+        
+        # Get detections in current sweep
+        detections = self.data_generator.simulate_radar_detection(self.sweep_angle)
+        
+        # Process through signal processing pipeline
+        if detections:
+            processed = self.signal_processor.process_detections(detections)
+            targets = self.target_detector.detect_targets(processed)
+            
+            # Update tracker
+            self.tracker.update(targets, self.current_time)
+            
+            # Update metrics
+            self.metrics['detections_count'] += len(detections)
+            if targets:
+                self.metrics['tracks_created'] = len(self.tracker.get_confirmed_tracks())
+        
+        # Update displays
+        self.update_radar_display()
+        self.update_all_panels()
+        
+        # Performance tracking
+        processing_time = time.time() - start_time
+        self.metrics['processing_times'].append(processing_time * 1000)
+        if len(self.metrics['processing_times']) > 100:
+            self.metrics['processing_times'] = self.metrics['processing_times'][-100:]
+        
+        return []
+    
+    def update_radar_display(self):
+        """Update the main radar PPI display"""
+        ax = self.axes['radar']
+        ax.clear()
+        self.setup_radar_display()
+        
+        # Draw sweep beam with professional glow effect
+        sweep_rad = np.radians(self.sweep_angle)
+        beam_width = np.radians(15)  # 15-degree beam
+        
+        # Main beam
+        beam = Wedge((0, 0), 200, 
+                    np.degrees(sweep_rad - beam_width/2), 
+                    np.degrees(sweep_rad + beam_width/2),
+                    alpha=0.3, color='#00ff00')
+        ax.add_patch(beam)
+        
+        # Bright sweep line
+        ax.plot([sweep_rad, sweep_rad], [0, 200], color='#00ff00', linewidth=3, alpha=0.8)
+        
+        # Shadow trail (professional persistence effect)
+        trail_length = min(len(self.sweep_history), 20)
+        for i, (angle, timestamp) in enumerate(self.sweep_history[-trail_length:]):
+            age_factor = (i + 1) / trail_length
+            alpha = 0.1 * age_factor
+            trail_rad = np.radians(angle)
+            ax.plot([trail_rad, trail_rad], [0, 200], color='#00ff00', 
+                   linewidth=1, alpha=alpha)
+        
+        # Add current sweep to history
+        self.sweep_history.append((self.sweep_angle, self.current_time))
+        if len(self.sweep_history) > 50:
+            self.sweep_history = self.sweep_history[-50:]
+        
+        # Display confirmed tracks
+        confirmed_tracks = self.tracker.get_confirmed_tracks()
+        for track in confirmed_tracks:
+            self.draw_track(ax, track)
+        
+        # Range and bearing cursor
+        ax.text(0.02, 0.98, f'AZ: {self.sweep_angle:06.2f}°', 
+               transform=ax.transAxes, color='#00ff00', fontsize=10,
+               verticalalignment='top', fontfamily='monospace')
+        
+    def draw_track(self, ax, track):
+        """Draw a professional track symbol with trails"""
+        # Convert to polar coordinates
+        range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+        bearing_rad = np.arctan2(track.state.x, track.state.y)
+        
+        if range_km > 200:  # Outside display range
+            return
+            
+        # Track symbol based on classification
+        if track.classification == 'aircraft':
+            marker = '^'
+            color = '#ffff00'  # Yellow for aircraft
+            size = 120
+        elif track.classification == 'ship':
+            marker = 's'
+            color = '#00ffff'  # Cyan for ships
+            size = 100
+        else:
+            marker = 'o'
+            color = '#ff8800'  # Orange for weather/unknown
+            size = 80
+        
+        # Main track symbol
+        ax.scatter(bearing_rad, range_km, s=size, c=color, marker=marker, 
+                  alpha=0.9, edgecolors='white', linewidths=1)
+        
+        # Track ID and info
+        info_text = f'T{track.id:03d}\n{track.state.speed_kmh:.0f}kt'
+        ax.text(bearing_rad, range_km + 8, info_text, color=color, 
+               fontsize=8, ha='center', va='bottom', weight='bold')
+        
+        # Velocity vector
+        if hasattr(track.state, 'vx') and hasattr(track.state, 'vy'):
+            # Scale velocity for display
+            vel_scale = 0.5
+            vx_display = track.state.vx * vel_scale
+            vy_display = track.state.vy * vel_scale
+            
+            # Convert velocity to polar for display
+            vel_bearing = np.arctan2(vx_display, vy_display)
+            vel_magnitude = np.sqrt(vx_display**2 + vy_display**2)
+            
+            if vel_magnitude > 2:  # Only show significant velocities
+                end_bearing = bearing_rad + vel_bearing - bearing_rad
+                end_range = range_km + vel_magnitude
+                ax.annotate('', xy=(bearing_rad + vel_bearing - bearing_rad, end_range),
+                           xytext=(bearing_rad, range_km),
+                           arrowprops=dict(arrowstyle='->', color=color, lw=2, alpha=0.7))
+        
+        # Track trail
+        if track.id not in self.target_trails:
+            self.target_trails[track.id] = []
+            
+        self.target_trails[track.id].append((bearing_rad, range_km, self.current_time))
+        
+        # Keep only recent trail points
+        trail_duration = 10.0  # 10 seconds
+        self.target_trails[track.id] = [
+            (b, r, t) for b, r, t in self.target_trails[track.id] 
+            if self.current_time - t <= trail_duration
+        ]
+        
+        # Draw trail
+        if len(self.target_trails[track.id]) > 1:
+            trail = self.target_trails[track.id]
+            for i in range(len(trail) - 1):
+                b1, r1, t1 = trail[i]
+                b2, r2, t2 = trail[i + 1]
+                age = self.current_time - t1
+                alpha = max(0.1, 1.0 - age / trail_duration)
+                ax.plot([b1, b2], [r1, r2], color=color, alpha=alpha, linewidth=1)
+    
+    
