@@ -195,3 +195,230 @@ class RadarModeManager:
                     return True
         return False
     
+    def get_mode_display_properties(self) -> Dict:
+        """Get display properties for current mode"""
+        mode_colors = {
+            RadarMode.SEARCH: {
+                'sweep_color': '#00ff00',
+                'beam_alpha': 0.2,
+                'trail_alpha': 0.1,
+                'target_color': '#ffff00',
+                'mode_text': 'SEARCH'
+            },
+            RadarMode.TRACK: {
+                'sweep_color': '#ff4400',
+                'beam_alpha': 0.4,
+                'trail_alpha': 0.3,
+                'target_color': '#ff0000',
+                'mode_text': 'TRACK'
+            },
+            RadarMode.TRACK_WHILE_SCAN: {
+                'sweep_color': '#00ffff',
+                'beam_alpha': 0.3,
+                'trail_alpha': 0.2,
+                'target_color': '#ff8800',
+                'mode_text': 'TWS'
+            },
+            RadarMode.STANDBY: {
+                'sweep_color': '#404040',
+                'beam_alpha': 0.1,
+                'trail_alpha': 0.05,
+                'target_color': '#808080',
+                'mode_text': 'STANDBY'
+            }
+        }
+        
+        return mode_colors[self.current_mode]
+
+class AdvancedRadarSystem:
+    """
+    Advanced Radar System with Multiple Operating Modes
+    
+    This system demonstrates professional radar capabilities with
+    multiple operating modes suitable for different tactical situations.
+    """
+    
+    def __init__(self):
+        print("🚀 Initializing Advanced Radar System...")
+        
+        # Core components
+        self.data_generator = RadarDataGenerator(max_range_km=200)
+        self.signal_processor = SignalProcessor()
+        self.target_detector = TargetDetector()
+        self.tracker = MultiTargetTracker()
+        self.mode_manager = RadarModeManager()
+        
+        # System state
+        self.is_running = False
+        self.current_time = 0.0
+        self.sweep_angle = 0.0
+        self.sweep_history = []
+        self.target_trails = {}
+        
+        # Display components
+        self.fig = None
+        self.axes = {}
+        self.animation = None
+        
+        # Performance metrics
+        self.metrics = {
+            'mode_switches': 0,
+            'detections_by_mode': {mode: 0 for mode in RadarMode},
+            'tracks_by_mode': {mode: 0 for mode in RadarMode},
+            'avg_processing_time': 0.0,
+            'frame_rate': 0.0
+        }
+        
+        self.setup_display()
+        self.load_demo_scenario()
+        
+    def setup_display(self):
+        """Setup advanced radar display with mode indicators"""
+        plt.style.use('dark_background')
+        self.fig = plt.figure(figsize=(20, 12))
+        self.fig.patch.set_facecolor('black')
+        
+        # Create layout
+        gs = self.fig.add_gridspec(3, 5, height_ratios=[2, 2, 1], width_ratios=[3, 1, 1, 1, 1])
+        
+        # Main radar display
+        self.axes['radar'] = self.fig.add_subplot(gs[:2, 0], projection='polar')
+        self.setup_radar_scope()
+        
+        # Mode control panel
+        self.axes['modes'] = self.fig.add_subplot(gs[0, 1])
+        self.axes['status'] = self.fig.add_subplot(gs[1, 1])
+        self.axes['targets'] = self.fig.add_subplot(gs[0, 2])
+        self.axes['performance'] = self.fig.add_subplot(gs[1, 2])
+        self.axes['controls'] = self.fig.add_subplot(gs[0, 3])
+        self.axes['parameters'] = self.fig.add_subplot(gs[1, 3])
+        self.axes['alerts'] = self.fig.add_subplot(gs[0, 4])
+        self.axes['history'] = self.fig.add_subplot(gs[1, 4])
+        self.axes['info'] = self.fig.add_subplot(gs[2, :])
+        
+        # Style panels
+        for name, ax in self.axes.items():
+            if name != 'radar':
+                ax.set_facecolor('#001133')
+                for spine in ax.spines.values():
+                    spine.set_color('#00ff00')
+                    spine.set_linewidth(1)
+                ax.tick_params(colors='#00ff00', labelsize=8)
+        
+        # Title
+        self.fig.suptitle('ADVANCED RADAR SYSTEM - MULTIPLE OPERATING MODES', 
+                         fontsize=18, color='#00ff00', weight='bold', y=0.95)
+                         
+    def setup_radar_scope(self):
+        """Configure the main radar PPI scope"""
+        ax = self.axes['radar']
+        ax.set_facecolor('black')
+        ax.set_ylim(0, 200)
+        ax.set_title('RADAR PPI SCOPE\nMulti-Mode Operation', 
+                    color='#00ff00', pad=20, fontsize=14, weight='bold')
+        
+        # Range rings
+        for r in [50, 100, 150, 200]:
+            circle = Circle((0, 0), r, fill=False, color='#00ff00', alpha=0.3, linewidth=1)
+            ax.add_patch(circle)
+            ax.text(np.pi/4, r-5, f'{r}km', color='#00ff00', fontsize=10, ha='center')
+        
+        # Bearing lines
+        for angle in range(0, 360, 30):
+            rad = np.radians(angle)
+            ax.plot([rad, rad], [0, 200], color='#00ff00', alpha=0.2, linewidth=0.5)
+            ax.text(rad, 210, f'{angle}°', color='#00ff00', fontsize=9, ha='center')
+        
+        # Configure polar display
+        ax.set_theta_direction(-1)
+        ax.set_theta_zero_location('N')
+        ax.grid(True, color='#00ff00', alpha=0.2)
+        ax.set_rticks([])
+        ax.set_thetagrids([])
+        
+    def load_demo_scenario(self):
+        """Load comprehensive scenario for mode demonstration"""
+        print("📡 Loading advanced mode demonstration scenario...")
+        
+        # High-traffic scenario for mode testing
+        aircraft_data = [
+            (-80, 120, 90, 450),    # East-bound commercial
+            (60, 140, 180, 520),    # South-bound heavy
+            (-120, -80, 45, 380),   # Northeast light
+            (90, -60, 315, 420),    # Northwest medium
+            (-40, 160, 270, 480),   # West-bound fast
+            (140, 40, 225, 360),    # Southwest slow
+            (-60, -140, 0, 400),    # North-bound commercial
+            (100, 100, 270, 340),   # West-bound light
+            (20, 180, 180, 600),    # South-bound military
+            (-100, 60, 135, 280)    # Southeast civilian
+        ]
+        
+        for x, y, heading, speed in aircraft_data:
+            self.data_generator.add_aircraft(x, y, heading, speed)
+            
+        # Naval vessels for track mode testing
+        ship_data = [
+            (-120, -160, 45, 25),   # Naval patrol
+            (80, -180, 315, 18),    # Cargo vessel
+            (-60, -170, 90, 12),    # Fishing fleet
+            (130, -140, 225, 22),   # Coast guard
+            (40, -190, 0, 15)       # Research vessel
+        ]
+        
+        for x, y, heading, speed in ship_data:
+            self.data_generator.add_ship(x, y, heading, speed)
+            
+        # Weather for TWS mode testing
+        self.data_generator.add_weather_returns(-80, 60, 40)   # Storm system
+        self.data_generator.add_weather_returns(100, 150, 30)  # Rain shower
+        self.data_generator.add_weather_returns(-40, -120, 25) # Squall line
+        
+        total_targets = len(self.data_generator.targets)
+        aircraft_count = sum(1 for t in self.data_generator.targets if t.target_type == 'aircraft')
+        ship_count = sum(1 for t in self.data_generator.targets if t.target_type == 'ship')
+        weather_count = sum(1 for t in self.data_generator.targets if t.target_type == 'weather')
+        
+        print(f"✅ Advanced scenario loaded: {total_targets} targets")
+        print(f"   • {aircraft_count} aircraft (commercial, military, civilian)")
+        print(f"   • {ship_count} ships (naval, commercial, research)")
+        print(f"   • {weather_count} weather phenomena")
+        
+    def animate(self, frame):
+        """Main animation with mode-specific behaviors"""
+        if not self.is_running:
+            self.update_static_displays()
+            return []
+            
+        start_time = time.time()
+        
+        # Update system time
+        self.current_time += 0.1
+        
+        # Get mode-specific parameters
+        sweep_params = self.mode_manager.get_sweep_parameters(self.current_time)
+        
+        # Update sweep based on current mode
+        if sweep_params['sweep_rate'] > 0:
+            self.sweep_angle = (self.sweep_angle + sweep_params['sweep_rate'] * 0.1) % 360
+        
+        # Update target positions
+        self.data_generator.update_targets(0.1)
+        
+        # Mode-specific detection processing
+        self.process_mode_specific_detection(sweep_params)
+        
+        # Update all displays
+        self.update_radar_display()
+        self.update_all_panels()
+        
+        # Performance tracking
+        processing_time = time.time() - start_time
+        self.metrics['avg_processing_time'] = (
+            self.metrics['avg_processing_time'] * 0.9 + processing_time * 0.1
+        )
+        self.metrics['frame_rate'] = 1.0 / max(processing_time, 0.001)
+        
+        return []
+    
+    
