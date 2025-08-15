@@ -421,4 +421,247 @@ class AdvancedRadarSystem:
         
         return []
     
+    def process_mode_specific_detection(self, sweep_params):
+        """Process detections based on current radar mode"""
+        if sweep_params['sweep_rate'] == 0:  # Standby mode
+            return
+            
+        # Get detections with mode-specific parameters
+        detections = self.data_generator.simulate_radar_detection(
+            self.sweep_angle,
+            sweep_width_deg=sweep_params['sweep_width']
+        )
+        
+        if not detections:
+            return
+            
+        # Filter by mode range limit
+        filtered_detections = [
+            d for d in detections 
+            if d.get('range', 0) <= sweep_params['range_limit']
+        ]
+        
+        if not filtered_detections:
+            return
+            
+        # Update signal processor threshold
+        self.signal_processor.detection_threshold = sweep_params['detection_threshold']
+        
+        # Process through pipeline
+        targets = self.target_detector.process_raw_detections(filtered_detections)
+        
+        if targets:
+            # Update tracker with mode-specific parameters
+            active_tracks = self.tracker.update(targets, self.current_time)
+            
+            # Update metrics
+            current_mode = self.mode_manager.current_mode
+            self.metrics['detections_by_mode'][current_mode] += len(filtered_detections)
+            self.metrics['tracks_by_mode'][current_mode] = len(self.tracker.get_confirmed_tracks())
+    
+    def update_radar_display(self):
+        """Update radar display with mode-specific appearance"""
+        ax = self.axes['radar']
+        ax.clear()
+        self.setup_radar_scope()
+        
+        # Get mode display properties
+        display_props = self.mode_manager.get_mode_display_properties()
+        
+        # Draw mode-specific sweep beam
+        if self.mode_manager.current_mode != RadarMode.STANDBY:
+            sweep_rad = np.radians(self.sweep_angle)
+            config = self.mode_manager.get_current_config()
+            beam_width = np.radians(config.sweep_width_deg)
+            
+            # Main beam with mode-specific color
+            beam = Wedge((0, 0), config.max_range_km,
+                        np.degrees(sweep_rad - beam_width/2),
+                        np.degrees(sweep_rad + beam_width/2),
+                        alpha=display_props['beam_alpha'], 
+                        color=display_props['sweep_color'])
+            ax.add_patch(beam)
+            
+            # Bright sweep line
+            ax.plot([sweep_rad, sweep_rad], [0, config.max_range_km], 
+                   color=display_props['sweep_color'], linewidth=3, alpha=0.9)
+        
+        # Mode-specific sweep trail
+        if len(self.sweep_history) > 0:
+            trail_length = min(len(self.sweep_history), 30)
+            for i, (angle, timestamp) in enumerate(self.sweep_history[-trail_length:]):
+                age_factor = (i + 1) / trail_length
+                alpha = display_props['trail_alpha'] * age_factor
+                trail_rad = np.radians(angle)
+                max_range = self.mode_manager.get_current_config().max_range_km
+                ax.plot([trail_rad, trail_rad], [0, max_range], 
+                       color=display_props['sweep_color'], linewidth=1, alpha=alpha)
+        
+        # Add current sweep to history
+        self.sweep_history.append((self.sweep_angle, self.current_time))
+        if len(self.sweep_history) > 60:
+            self.sweep_history = self.sweep_history[-60:]
+        
+        # Display tracks with mode-specific styling
+        confirmed_tracks = self.tracker.get_confirmed_tracks()
+        for track in confirmed_tracks:
+            self.draw_mode_specific_track(ax, track, display_props)
+        
+        # Mode indicator
+        ax.text(0.02, 0.98, f'MODE: {display_props["mode_text"]}', 
+               transform=ax.transAxes, color=display_props['sweep_color'], 
+               fontsize=14, weight='bold', verticalalignment='top')
+        
+        # Sweep angle display
+        ax.text(0.02, 0.92, f'AZ: {self.sweep_angle:06.2f}°', 
+               transform=ax.transAxes, color='#00ff00', fontsize=12,
+               verticalalignment='top', fontfamily='monospace')
+    
+    def draw_mode_specific_track(self, ax, track, display_props):
+        """Draw track with mode-specific styling"""
+        # Convert to polar coordinates
+        range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+        bearing_rad = np.arctan2(track.state.x, track.state.y)
+        
+        max_range = self.mode_manager.get_current_config().max_range_km
+        if range_km > max_range:
+            return
+            
+        # Mode-specific track symbol
+        if self.mode_manager.current_mode == RadarMode.TRACK:
+            marker = 's'  # Square for track mode
+            size = 150
+        elif self.mode_manager.current_mode == RadarMode.TRACK_WHILE_SCAN:
+            marker = '^'  # Triangle for TWS
+            size = 120
+        else:  # Search mode
+            marker = 'o'  # Circle for search
+            size = 100
+        
+        # Track symbol
+        ax.scatter(bearing_rad, range_km, s=size, c=display_props['target_color'], 
+                  marker=marker, alpha=0.9, edgecolors='white', linewidths=2, zorder=20)
+        
+        # Track information
+        info_text = f'T{track.id[-3:]}\n{track.state.speed_kmh:.0f}kt'
+        ax.text(bearing_rad, range_km + 8, info_text, color=display_props['target_color'], 
+               fontsize=9, ha='center', va='bottom', weight='bold')
+        
+        # Velocity vector for track and TWS modes
+        if self.mode_manager.current_mode in [RadarMode.TRACK, RadarMode.TRACK_WHILE_SCAN]:
+            speed = np.sqrt(track.state.vx**2 + track.state.vy**2)
+            if speed > 0.5:
+                vel_scale = max_range * 0.08
+                end_x = track.state.x + track.state.vx * vel_scale
+                end_y = track.state.y + track.state.vy * vel_scale
+                end_range = np.sqrt(end_x**2 + end_y**2)
+                end_bearing = np.arctan2(end_x, end_y)
+                
+                if end_range <= max_range:
+                    ax.annotate('', xy=(end_bearing, end_range),
+                               xytext=(bearing_rad, range_km),
+                               arrowprops=dict(arrowstyle='->', 
+                                             color=display_props['target_color'], 
+                                             lw=2, alpha=0.8))
+    
+    def update_all_panels(self):
+        """Update all information panels"""
+        self.update_mode_panel()
+        self.update_status_panel()
+        self.update_targets_panel()
+        self.update_performance_panel()
+        self.update_controls_panel()
+        self.update_parameters_panel()
+        self.update_alerts_panel()
+        self.update_history_panel()
+        self.update_info_bar()
+    
+    def update_static_displays(self):
+        """Update displays when system is stopped"""
+        self.update_controls_panel()
+        self.update_info_bar()
+    
+    def update_mode_panel(self):
+        """Update radar mode control panel"""
+        ax = self.axes['modes']
+        ax.clear()
+        ax.set_title('RADAR MODES', color='#00ff00', fontsize=11, weight='bold')
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        
+        # Mode buttons
+        modes = [
+            (RadarMode.SEARCH, (1, 7.5, 8, 1.5)),
+            (RadarMode.TRACK, (1, 5.5, 8, 1.5)),
+            (RadarMode.TRACK_WHILE_SCAN, (1, 3.5, 8, 1.5)),
+            (RadarMode.STANDBY, (1, 1.5, 8, 1.5))
+        ]
+        
+        for mode, (x, y, w, h) in modes:
+            # Highlight current mode
+            if mode == self.mode_manager.current_mode:
+                color = '#006600'
+                text_color = '#00ff00'
+            else:
+                color = '#333333'
+                text_color = '#888888'
+                
+            rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.1",
+                                facecolor=color, edgecolor='#00ff00', linewidth=1)
+            ax.add_patch(rect)
+            ax.text(x + w/2, y + h/2, mode.value, ha='center', va='center',
+                   color=text_color, fontsize=10, weight='bold')
+        
+        ax.axis('off')
+    
+    def update_status_panel(self):
+        """Update system status panel"""
+        ax = self.axes['status']
+        ax.clear()
+        ax.set_title('SYSTEM STATUS', color='#00ff00', fontsize=11, weight='bold')
+        
+        config = self.mode_manager.get_current_config()
+        
+        status_text = f"""
+STATUS: {'ACTIVE' if self.is_running else 'STANDBY'}
+MODE: {self.mode_manager.current_mode.value}
+RANGE: {config.max_range_km:.0f} km
+SWEEP: {config.sweep_rate_rpm:.0f} RPM
+BEAM: {config.sweep_width_deg:.0f}°
+
+THRESHOLD: {config.detection_threshold:.3f}
+UPTIME: {self.current_time:.0f}s
+        """.strip()
+        
+        ax.text(0.05, 0.95, status_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_targets_panel(self):
+        """Update targets panel"""
+        ax = self.axes['targets']
+        ax.clear()
+        ax.set_title('ACTIVE TARGETS', color='#00ff00', fontsize=11, weight='bold')
+        
+        tracks = self.tracker.get_confirmed_tracks()
+        
+        if tracks:
+            targets_text = f"CONFIRMED: {len(tracks)}\n\n"
+            for i, track in enumerate(tracks[:5]):
+                range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+                bearing = np.degrees(np.arctan2(track.state.x, track.state.y)) % 360
+                targets_text += f"T{track.id[-3:]}: {track.classification[:4].upper()}\n"
+                targets_text += f"  {range_km:.1f}km @ {bearing:.0f}°\n"
+                targets_text += f"  {track.state.speed_kmh:.0f}kt\n"
+                if i < 4:
+                    targets_text += "\n"
+        else:
+            targets_text = "NO CONFIRMED\nTARGETS"
+            
+        ax.text(0.05, 0.95, targets_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=8, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
     
