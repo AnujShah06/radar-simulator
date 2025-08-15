@@ -217,15 +217,15 @@ class Day6CompleteDemo:
         
         # Process through signal processing pipeline
         if detections:
-            processed = self.signal_processor.process_detections(detections)
-            targets = self.target_detector.detect_targets(processed)
+            # Use the TargetDetector's complete pipeline method
+            targets = self.target_detector.process_raw_detections(detections)
             
             # Update tracker
-            self.tracker.update(targets, self.current_time)
-            
-            # Update metrics
-            self.metrics['detections_count'] += len(detections)
             if targets:
+                active_tracks = self.tracker.update(targets, self.current_time)
+                
+                # Update metrics
+                self.metrics['detections_count'] += len(detections)
                 self.metrics['tracks_created'] = len(self.tracker.get_confirmed_tracks())
         
         # Update displays
