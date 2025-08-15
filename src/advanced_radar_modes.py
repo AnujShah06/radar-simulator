@@ -815,4 +815,134 @@ TWS: {self.metrics['tracks_by_mode'][RadarMode.TRACK_WHILE_SCAN]}
                color='#00ff00', fontsize=11, weight='bold')
         ax.axis('off')
     
+    def on_click(self, event):
+        """Handle mouse clicks for mode switching and controls"""
+        if event.inaxes == self.axes['modes']:
+            # Mode switching
+            x, y = event.xdata, event.ydata
+            if x is not None and y is not None and 1 <= x <= 9:
+                if 7.5 <= y <= 9:
+                    self.switch_mode(RadarMode.SEARCH)
+                elif 5.5 <= y <= 7:
+                    self.switch_mode(RadarMode.TRACK)
+                elif 3.5 <= y <= 5:
+                    self.switch_mode(RadarMode.TRACK_WHILE_SCAN)
+                elif 1.5 <= y <= 3:
+                    self.switch_mode(RadarMode.STANDBY)
+                    
+        elif event.inaxes == self.axes['controls']:
+            # System controls
+            x, y = event.xdata, event.ydata
+            if x is not None and y is not None and 1 <= x <= 9:
+                if 7.5 <= y <= 9:  # START
+                    self.start_system()
+                elif 5.5 <= y <= 7:  # STOP
+                    self.stop_system()
+                elif 3.5 <= y <= 5:  # RESET
+                    self.reset_system()
+                elif 1.5 <= y <= 3:  # AUTO
+                    self.auto_mode_cycle()
     
+    def switch_mode(self, new_mode: RadarMode):
+        """Switch to new radar mode"""
+        if new_mode != self.mode_manager.current_mode:
+            self.mode_manager.set_mode(new_mode)
+            self.metrics['mode_switches'] += 1
+            
+            # Adjust system parameters for new mode
+            config = self.mode_manager.get_current_config()
+            self.signal_processor.detection_threshold = config.detection_threshold
+            self.tracker.max_association_distance = config.max_range_km * 0.05
+            
+            # Add priority sectors for track mode
+            if new_mode == RadarMode.TRACK:
+                tracks = self.tracker.get_confirmed_tracks()
+                if tracks:
+                    for track in tracks[:3]:  # Focus on first 3 tracks
+                        bearing = np.degrees(np.arctan2(track.state.x, track.state.y))
+                        self.mode_manager.add_priority_sector(bearing - 15, bearing + 15)
+    
+    def start_system(self):
+        """Start the advanced radar system"""
+        if not self.is_running:
+            self.is_running = True
+            self.current_time = 0.0
+            self.sweep_angle = 0.0
+            print(f"🚀 Advanced Radar System STARTED in {self.mode_manager.current_mode.value} mode")
+    
+    def stop_system(self):
+        """Stop the radar system"""
+        if self.is_running:
+            self.is_running = False
+            print("🛑 Advanced Radar System STOPPED")
+    
+    def reset_system(self):
+        """Reset the system"""
+        self.stop_system()
+        self.tracker = MultiTargetTracker()
+        self.mode_manager.set_mode(RadarMode.SEARCH)
+        self.current_time = 0.0
+        self.sweep_angle = 0.0
+        self.target_trails = {}
+        self.mode_manager.sector_priorities = []
+        print("🔄 Advanced System RESET to Search mode")
+    
+    def auto_mode_cycle(self):
+        """Automatically cycle through modes for demonstration"""
+        if not self.is_running:
+            self.start_system()
+            
+        modes = [RadarMode.SEARCH, RadarMode.TRACK_WHILE_SCAN, RadarMode.TRACK]
+        current_index = modes.index(self.mode_manager.current_mode) if self.mode_manager.current_mode in modes else -1
+        next_mode = modes[(current_index + 1) % len(modes)]
+        self.switch_mode(next_mode)
+        
+        print(f"🔄 Auto mode cycle: {next_mode.value}")
+    
+    def run_demo(self):
+        """Run the advanced radar modes demonstration"""
+        print("\n" + "="*70)
+        print("🎯 DAY 7 TASK 1: ADVANCED RADAR MODES DEMONSTRATION")
+        print("="*70)
+        print("\nThis demonstration showcases professional radar operating modes:")
+        print("✅ SEARCH Mode: Wide-area scanning for new target detection")
+        print("✅ TRACK Mode: Focused tracking of confirmed targets")
+        print("✅ TWS Mode: Track-While-Scan hybrid operation")
+        print("✅ STANDBY Mode: System standby with minimal power")
+        print("\n🎛️  Interactive Controls:")
+        print("  • Click mode buttons (left panel) to switch radar modes")
+        print("  • Use system controls (START/STOP/RESET/AUTO)")
+        print("  • AUTO button cycles through modes automatically")
+        print("  • Observe how each mode changes radar behavior")
+        print("\n🔍 Mode Characteristics:")
+        print("  • SEARCH: 30 RPM, 30° beam, 200km range (green)")
+        print("  • TRACK: 60 RPM, 10° beam, 150km range (red)")
+        print("  • TWS: 45 RPM, 20° beam, 175km range (cyan)")
+        print("  • STANDBY: No sweep, minimal processing (gray)")
+        print("\n💡 Watch how targets appear differently in each mode!")
+        print("="*70)
+        
+        # Connect mouse events
+        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+        
+        # Start animation
+        self.animation = FuncAnimation(self.fig, self.animate, interval=100,
+                                     blit=False, cache_frame_data=False)
+        
+        plt.tight_layout()
+        plt.show()
+        
+        print("\n🎉 Advanced Radar Modes demonstration complete!")
+        print("✅ Professional multi-mode radar system operational")
+
+def main():
+    """Run the advanced radar modes demonstration"""
+    try:
+        system = AdvancedRadarSystem()
+        system.run_demo()
+    except Exception as e:
+        print(f"❌ Error running advanced modes demo: {e}")
+        print("Make sure all radar components are available")
+
+if __name__ == "__main__":
+    main()
