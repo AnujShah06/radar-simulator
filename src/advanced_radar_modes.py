@@ -664,4 +664,155 @@ UPTIME: {self.current_time:.0f}s
                fontfamily='monospace')
         ax.axis('off')
     
+    def update_performance_panel(self):
+        """Update performance metrics panel"""
+        ax = self.axes['performance']
+        ax.clear()
+        ax.set_title('PERFORMANCE', color='#00ff00', fontsize=11, weight='bold')
+        
+        current_mode = self.mode_manager.current_mode
+        
+        perf_text = f"""
+FRAME RATE: {self.metrics['frame_rate']:.1f} FPS
+PROC TIME: {self.metrics['avg_processing_time']*1000:.1f}ms
+
+MODE STATS:
+  Detections: {self.metrics['detections_by_mode'][current_mode]}
+  Tracks: {self.metrics['tracks_by_mode'][current_mode]}
+  
+EFFICIENCY: {'OPTIMAL' if self.metrics['frame_rate'] > 30 else 'GOOD'}
+        """.strip()
+        
+        ax.text(0.05, 0.95, perf_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_controls_panel(self):
+        """Update system controls panel"""
+        ax = self.axes['controls']
+        ax.clear()
+        ax.set_title('SYSTEM CONTROL', color='#00ff00', fontsize=11, weight='bold')
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        
+        # Control buttons
+        buttons = [
+            ('START', (1, 7.5, 8, 1.5), '#006600' if not self.is_running else '#333333'),
+            ('STOP', (1, 5.5, 8, 1.5), '#660000' if self.is_running else '#333333'),
+            ('RESET', (1, 3.5, 8, 1.5), '#444444'),
+            ('AUTO', (1, 1.5, 8, 1.5), '#004466')
+        ]
+        
+        for label, (x, y, w, h), color in buttons:
+            rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.1",
+                                facecolor=color, edgecolor='#00ff00', linewidth=1)
+            ax.add_patch(rect)
+            ax.text(x + w/2, y + h/2, label, ha='center', va='center',
+                   color='#00ff00', fontsize=10, weight='bold')
+        
+        ax.axis('off')
+    
+    def update_parameters_panel(self):
+        """Update radar parameters panel"""
+        ax = self.axes['parameters']
+        ax.clear()
+        ax.set_title('PARAMETERS', color='#00ff00', fontsize=11, weight='bold')
+        
+        config = self.mode_manager.get_current_config()
+        
+        param_text = f"""
+SENSITIVITY: {'HIGH' if config.detection_threshold < 0.1 else 'MEDIUM'}
+RANGE GATE: {config.max_range_km:.0f} km
+BEAM WIDTH: {config.sweep_width_deg:.0f}°
+DWELL TIME: {config.dwell_time_ms:.0f} ms
+
+UPDATE RATE: {config.track_update_rate_hz:.1f} Hz
+PRIORITY SECTORS: {len(self.mode_manager.sector_priorities)}
+        """.strip()
+        
+        ax.text(0.05, 0.95, param_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_alerts_panel(self):
+        """Update system alerts panel"""
+        ax = self.axes['alerts']
+        ax.clear()
+        ax.set_title('ALERTS', color='#00ff00', fontsize=11, weight='bold')
+        
+        # Generate dynamic alerts based on system state
+        alerts = []
+        
+        if self.is_running:
+            tracks = self.tracker.get_confirmed_tracks()
+            if len(tracks) > 15:
+                alerts.append("⚠️ HIGH TRAFFIC")
+            if self.metrics['frame_rate'] < 20:
+                alerts.append("⚠️ PERFORMANCE")
+            if self.mode_manager.current_mode == RadarMode.TRACK and len(tracks) == 0:
+                alerts.append("ℹ️ NO TRACK TARGETS")
+        else:
+            alerts.append("ℹ️ SYSTEM STANDBY")
+        
+        if not alerts:
+            alerts.append("✅ ALL NORMAL")
+        
+        alert_text = "\n".join(alerts)
+        
+        ax.text(0.05, 0.95, alert_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_history_panel(self):
+        """Update mode history panel"""
+        ax = self.axes['history']
+        ax.clear()
+        ax.set_title('MODE HISTORY', color='#00ff00', fontsize=11, weight='bold')
+        
+        mode_duration = self.current_time - self.mode_manager.mode_start_time
+        
+        history_text = f"""
+CURRENT MODE:
+{self.mode_manager.current_mode.value}
+
+DURATION: {mode_duration:.1f}s
+SWITCHES: {self.metrics['mode_switches']}
+
+EFFICIENCY:
+Search: {self.metrics['detections_by_mode'][RadarMode.SEARCH]}
+Track: {self.metrics['tracks_by_mode'][RadarMode.TRACK]}
+TWS: {self.metrics['tracks_by_mode'][RadarMode.TRACK_WHILE_SCAN]}
+        """.strip()
+        
+        ax.text(0.05, 0.95, history_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=8, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_info_bar(self):
+        """Update bottom information bar"""
+        ax = self.axes['info']
+        ax.clear()
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 1)
+        
+        mode_name = self.mode_manager.current_mode.value
+        config = self.mode_manager.get_current_config()
+        tracks = len(self.tracker.get_confirmed_tracks())
+        
+        info_text = (f"DAY 7 ADVANCED MODES: {mode_name} Mode Active | "
+                    f"Range: {config.max_range_km:.0f}km | "
+                    f"Sweep: {config.sweep_rate_rpm:.0f}RPM | "
+                    f"Beam: {config.sweep_width_deg:.0f}° | "
+                    f"Tracks: {tracks} | "
+                    f"Time: {self.current_time:.1f}s | "
+                    f"FPS: {self.metrics['frame_rate']:.1f}")
+        
+        ax.text(5, 0.5, info_text, ha='center', va='center',
+               color='#00ff00', fontsize=11, weight='bold')
+        ax.axis('off')
+    
     
