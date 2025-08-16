@@ -479,4 +479,165 @@ class ConfigurableRadarSystem:
         ax.set_rticks([])
         ax.set_thetagrids([])
     
+    def setup_sliders(self):
+        """Setup parameter adjustment sliders"""
+        # Range sliders
+        ax_range = self.axes['range_sliders']
+        ax_range.set_title('RANGE CONTROLS', color='#00ff00', fontsize=11, weight='bold')
+        
+        # Max range slider
+        slider_ax1 = plt.axes([0.1, 0.65, 0.4, 0.03], facecolor='#001122')
+        self.sliders['max_range'] = Slider(
+            slider_ax1, 'Max Range (km)', 50, 500, 
+            valinit=self.current_config.max_range_km, 
+            color='#00ff00', track_color='#003300'
+        )
+        
+        # Min range slider
+        slider_ax2 = plt.axes([0.1, 0.6, 0.4, 0.03], facecolor='#001122')
+        self.sliders['min_range'] = Slider(
+            slider_ax2, 'Min Range (km)', 0.1, 50, 
+            valinit=self.current_config.min_range_km,
+            color='#00ff00', track_color='#003300'
+        )
+        
+        # Sensitivity sliders
+        ax_sens = self.axes['sensitivity_sliders']
+        ax_sens.set_title('SENSITIVITY CONTROLS', color='#00ff00', fontsize=11, weight='bold')
+        
+        # Detection threshold slider
+        slider_ax3 = plt.axes([0.1, 0.45, 0.4, 0.03], facecolor='#001122')
+        self.sliders['threshold'] = Slider(
+            slider_ax3, 'Detection Threshold', 0.01, 0.5, 
+            valinit=self.current_config.detection_threshold,
+            color='#ffff00', track_color='#333300'
+        )
+        
+        # False alarm rate slider
+        slider_ax4 = plt.axes([0.1, 0.4, 0.4, 0.03], facecolor='#001122')
+        self.sliders['false_alarm'] = Slider(
+            slider_ax4, 'False Alarm Rate', 0.001, 0.2, 
+            valinit=self.current_config.false_alarm_rate,
+            color='#ffff00', track_color='#333300'
+        )
+        
+        # Power sliders
+        ax_power = self.axes['power_sliders']
+        ax_power.set_title('POWER & SWEEP CONTROLS', color='#00ff00', fontsize=11, weight='bold')
+        
+        # Transmitter power slider
+        slider_ax5 = plt.axes([0.1, 0.25, 0.4, 0.03], facecolor='#001122')
+        self.sliders['power'] = Slider(
+            slider_ax5, 'TX Power (kW)', 10, 500, 
+            valinit=self.current_config.transmitter_power_kw,
+            color='#ff4400', track_color='#330000'
+        )
+        
+        # Sweep rate slider
+        slider_ax6 = plt.axes([0.1, 0.2, 0.4, 0.03], facecolor='#001122')
+        self.sliders['sweep_rate'] = Slider(
+            slider_ax6, 'Sweep Rate (RPM)', 5, 120, 
+            valinit=self.current_config.sweep_rate_rpm,
+            color='#ff4400', track_color='#330000'
+        )
+        
+        # Connect slider events
+        for slider_name, slider in self.sliders.items():
+            slider.on_changed(lambda val, name=slider_name: self.on_slider_change(name, val))
+        
+        # Hide slider panel axes
+        for ax_name in ['range_sliders', 'sensitivity_sliders', 'power_sliders']:
+            self.axes[ax_name].axis('off')
+    
+    def setup_preset_buttons(self):
+        """Setup configuration preset buttons"""
+        ax = self.axes['presets']
+        ax.clear()
+        ax.set_title('CONFIG PRESETS', color='#00ff00', fontsize=11, weight='bold')
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        
+        presets = [
+            (ConfigPreset.AIRPORT_CONTROL, (0.5, 8, 9, 1.2), '#004400'),
+            (ConfigPreset.NAVAL_SURVEILLANCE, (0.5, 6.5, 9, 1.2), '#000044'),
+            (ConfigPreset.MILITARY_DEFENSE, (0.5, 5, 9, 1.2), '#440000'),
+            (ConfigPreset.WEATHER_MONITORING, (0.5, 3.5, 9, 1.2), '#404000'),
+            (ConfigPreset.COASTAL_PATROL, (0.5, 2, 9, 1.2), '#004440'),
+            (ConfigPreset.CUSTOM, (0.5, 0.5, 9, 1.2), '#404040')
+        ]
+        
+        for preset, (x, y, w, h), color in presets:
+            rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.1",
+                                facecolor=color, edgecolor='#00ff00', linewidth=1)
+            ax.add_patch(rect)
+            ax.text(x + w/2, y + h/2, preset.value, ha='center', va='center',
+                   color='#00ff00', fontsize=8, weight='bold')
+        
+        ax.axis('off')
+    
+    def setup_filter_controls(self):
+        """Setup filter and option controls"""
+        # Filter controls
+        ax_filters = self.axes['filters']
+        ax_filters.clear()
+        ax_filters.set_title('FILTERS', color='#00ff00', fontsize=11, weight='bold')
+        
+        filter_text = f"""
+CLUTTER REJECT: {'ON' if self.current_config.clutter_rejection else 'OFF'}
+WEATHER FILTER: {'ON' if self.current_config.weather_filtering else 'OFF'}
+MTI: {'ON' if self.current_config.moving_target_indicator else 'OFF'}
+SEA CLUTTER: {'ON' if self.current_config.sea_clutter_suppression else 'OFF'}
+        """.strip()
+        
+        ax_filters.text(0.05, 0.95, filter_text, transform=ax_filters.transAxes,
+                       color='#00ff00', fontsize=9, verticalalignment='top',
+                       fontfamily='monospace')
+        ax_filters.axis('off')
+        
+        # Display controls
+        ax_display = self.axes['display']
+        ax_display.clear()
+        ax_display.set_title('DISPLAY', color='#00ff00', fontsize=11, weight='bold')
+        
+        display_text = f"""
+BRIGHTNESS: {self.current_config.brightness:.1f}
+CONTRAST: {self.current_config.contrast:.1f}
+TRAIL: {self.current_config.trail_length_sec:.0f}s
+UPDATE: {self.current_config.update_rate_hz:.1f}Hz
+        """.strip()
+        
+        ax_display.text(0.05, 0.95, display_text, transform=ax_display.transAxes,
+                       color='#00ff00', fontsize=9, verticalalignment='top',
+                       fontfamily='monospace')
+        ax_display.axis('off')
+    
+    def on_slider_change(self, slider_name: str, value: float):
+        """Handle slider value changes"""
+        # Validate parameter
+        param_map = {
+            'max_range': 'max_range_km',
+            'min_range': 'min_range_km',
+            'threshold': 'detection_threshold',
+            'false_alarm': 'false_alarm_rate',
+            'power': 'transmitter_power_kw',
+            'sweep_rate': 'sweep_rate_rpm'
+        }
+        
+        if slider_name in param_map:
+            param_name = param_map[slider_name]
+            is_valid, error_msg = self.config_manager.validate_parameter(param_name, value)
+            
+            if is_valid:
+                # Update configuration
+                setattr(self.current_config, param_name, value)
+                self.apply_configuration(self.current_config)
+                
+                # Special handling for range changes
+                if slider_name in ['max_range', 'min_range']:
+                    self.setup_radar_scope()  # Redraw scope with new range
+                    
+                print(f"🎛️  {param_name}: {value:.3f}")
+            else:
+                print(f"❌ {error_msg}")
+    
     
