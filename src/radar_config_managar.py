@@ -640,4 +640,167 @@ UPDATE: {self.current_config.update_rate_hz:.1f}Hz
             else:
                 print(f"❌ {error_msg}")
     
+    def load_demo_scenario(self):
+        """Load demonstration scenario with various target types"""
+        print("📡 Loading configurable radar demo scenario...")
+        
+        # Diverse target set for configuration testing
+        aircraft_data = [
+            (-150, 180, 90, 450),   # Long range commercial
+            (80, 120, 225, 380),    # Medium range light
+            (-60, -140, 45, 820),   # High speed military
+            (200, -80, 315, 160),   # Slow general aviation
+            (0, 250, 180, 600),     # Very long range heavy
+            (-120, 100, 135, 280),  # Low speed helicopter
+            (160, 40, 270, 950)     # Very high speed military
+        ]
+        
+        for x, y, heading, speed in aircraft_data:
+            self.data_generator.add_aircraft(x, y, heading, speed)
+            
+        # Naval targets for range testing
+        ship_data = [
+            (-180, -120, 45, 25),   # Long range naval
+            (120, -160, 270, 18),   # Medium range cargo
+            (-40, -200, 90, 35),    # Fast patrol boat
+            (200, -100, 225, 12)    # Slow fishing vessel
+        ]
+        
+        for x, y, heading, speed in ship_data:
+            self.data_generator.add_ship(x, y, heading, speed)
+            
+        # Weather returns for filter testing
+        self.data_generator.add_weather_returns(-100, 120, 45)  # Large storm
+        self.data_generator.add_weather_returns(140, 180, 25)   # Rain shower
+        
+        total_targets = len(self.data_generator.targets)
+        print(f"✅ Configuration test scenario loaded: {total_targets} targets")
+        print("   • Targets at various ranges for configuration testing")
+        print("   • High and low speed targets for sensitivity testing")
+        
+    def animate(self, frame):
+        """Main animation with configurable parameters"""
+        if not self.is_running:
+            self.update_static_displays()
+            return []
+            
+        start_time = time.time()
+        
+        # Update system time
+        self.current_time += 0.1
+        
+        # Update sweep based on current configuration
+        sweep_rate_deg_per_sec = self.current_config.sweep_rate_rpm * 6.0
+        self.sweep_angle = (self.sweep_angle + sweep_rate_deg_per_sec * 0.1) % 360
+        
+        # Update target positions
+        self.data_generator.update_targets(0.1)
+        
+        # Process detections with current configuration
+        self.process_configurable_detection()
+        
+        # Update displays
+        self.update_configurable_radar_display()
+        self.update_all_config_panels()
+        
+        # Performance tracking
+        processing_time = time.time() - start_time
+        self.metrics['avg_processing_time'] = (
+            self.metrics['avg_processing_time'] * 0.9 + processing_time * 0.1
+        )
+        self.metrics['frame_rate'] = 1.0 / max(processing_time, 0.001)
+        
+        return []
+    
+    def process_configurable_detection(self):
+        """Process detections with current configuration parameters"""
+        # Calculate dynamic beam width based on configuration
+        beam_width = self.current_config.beam_width_deg
+        
+        # Get detections with configurable parameters
+        detections = self.data_generator.simulate_radar_detection(
+            self.sweep_angle,
+            sweep_width_deg=beam_width
+        )
+        
+        if not detections:
+            return
+            
+        # Filter by configurable range limits
+        filtered_detections = [
+            d for d in detections 
+            if self.current_config.min_range_km <= d.get('range', 0) <= self.current_config.max_range_km
+        ]
+        
+        if not filtered_detections:
+            return
+            
+        # Apply current configuration to signal processor
+        self.signal_processor.detection_threshold = self.current_config.detection_threshold
+        self.signal_processor.false_alarm_rate = self.current_config.false_alarm_rate
+        
+        # Process through pipeline
+        targets = self.target_detector.process_raw_detections(filtered_detections)
+        
+        if targets:
+            # Apply configuration-based filtering
+            filtered_targets = self.apply_configuration_filters(targets)
+            
+            # Update tracker
+            active_tracks = self.tracker.update(filtered_targets, self.current_time)
+            
+            # Get confirmed tracks
+            confirmed_tracks = self.tracker.get_confirmed_tracks()
+            
+            # Update metrics
+            self.metrics['total_detections'] += len(filtered_detections)
+            self.metrics['confirmed_tracks'] = len(confirmed_tracks)
+            
+            # Calculate false alarms (simplified)
+            expected_targets = len([t for t in self.data_generator.targets if self.target_in_beam(t)])
+            self.metrics['false_alarms'] = max(0, len(filtered_detections) - expected_targets)
+    
+    def target_in_beam(self, target) -> bool:
+        """Check if target is currently in radar beam"""
+        target_bearing = np.degrees(np.arctan2(target.x, target.y)) % 360
+        beam_half_width = self.current_config.beam_width_deg / 2
+        
+        # Handle beam crossing 0/360 degrees
+        beam_start = (self.sweep_angle - beam_half_width) % 360
+        beam_end = (self.sweep_angle + beam_half_width) % 360
+        
+        if beam_start <= beam_end:
+            return beam_start <= target_bearing <= beam_end
+        else:  # Beam crosses 0/360
+            return target_bearing >= beam_start or target_bearing <= beam_end
+    
+    def apply_configuration_filters(self, targets):
+        """Apply configuration-based filtering to targets"""
+        filtered_targets = []
+        
+        for target in targets:
+            # Apply clutter rejection
+            if self.current_config.clutter_rejection and target.classification == 'weather':
+                if target.signal_strength < self.current_config.detection_threshold * 1.5:
+                    continue
+            
+            # Apply weather filtering
+            if not self.current_config.weather_filtering and target.classification == 'weather':
+                continue
+                
+            # Apply moving target indicator
+            if self.current_config.moving_target_indicator:
+                # Simple MTI - reject very slow targets
+                if abs(target.doppler_shift) < 5.0:  # Less than 5 m/s
+                    continue
+            
+            # Apply sea clutter suppression for ships
+            if self.current_config.sea_clutter_suppression and target.classification == 'ship':
+                if target.range_km < 20 and target.signal_strength < self.current_config.detection_threshold * 2.0:
+                    continue
+            
+            filtered_targets.append(target)
+        
+        return filtered_targets
+    
     
