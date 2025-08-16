@@ -259,3 +259,224 @@ class ConfigurationManager:
             'receiver_sensitivity_dbm': (-130.0, -80.0)
         }
     
+    def validate_parameter(self, param_name: str, value: float) -> Tuple[bool, str]:
+        """Validate a parameter value"""
+        if param_name not in self.validation_rules:
+            return True, ""
+            
+        min_val, max_val = self.validation_rules[param_name]
+        if value < min_val:
+            return False, f"{param_name} must be >= {min_val}"
+        if value > max_val:
+            return False, f"{param_name} must be <= {max_val}"
+            
+        return True, ""
+    
+    def apply_preset(self, preset: ConfigPreset) -> RadarConfiguration:
+        """Apply a configuration preset"""
+        if preset in self.presets:
+            self.current_config = RadarConfiguration(**self.presets[preset].__dict__)
+            print(f"🎛️  Applied preset: {preset.value}")
+            return self.current_config
+        else:
+            print(f"❌ Preset {preset.value} not found")
+            return self.current_config
+    
+    def save_preset(self, name: str, config: RadarConfiguration):
+        """Save current configuration as custom preset"""
+        # In a real system, this would save to file
+        print(f"💾 Saved configuration as '{name}'")
+    
+    def get_config_summary(self, config: RadarConfiguration) -> str:
+        """Get human-readable configuration summary"""
+        return f"""
+Range: {config.min_range_km:.1f}-{config.max_range_km:.1f}km
+Sensitivity: {config.detection_threshold:.3f}
+Sweep: {config.sweep_rate_rpm:.0f} RPM
+Beam: {config.beam_width_deg:.1f}°
+Power: {config.transmitter_power_kw:.0f}kW
+Mode: {config.current_mode.value}
+        """.strip()
+
+class ConfigurableRadarSystem:
+    """
+    Configurable Radar System with Real-Time Parameter Adjustment
+    
+    This system allows operators to adjust radar parameters in real-time
+    and apply operational presets for different mission requirements.
+    """
+    
+    def __init__(self):
+        print("🎛️  Initializing Configurable Radar System...")
+        
+        # Core components
+        self.data_generator = RadarDataGenerator(max_range_km=200)
+        self.signal_processor = SignalProcessor()
+        self.target_detector = TargetDetector()
+        self.tracker = MultiTargetTracker()
+        
+        # Configuration management
+        self.config_manager = ConfigurationManager()
+        self.current_config = self.config_manager.current_config
+        
+        # Apply initial configuration
+        self.apply_configuration(self.current_config)
+        
+        # System state
+        self.is_running = False
+        self.current_time = 0.0
+        self.sweep_angle = 0.0
+        self.sweep_history = []
+        self.target_trails = {}
+        self.config_changed = False
+        
+        # Performance metrics
+        self.metrics = {
+            'confirmed_tracks': 0,
+            'total_detections': 0,
+            'false_alarms': 0,
+            'config_changes': 0,
+            'avg_processing_time': 0.0,
+            'frame_rate': 0.0,
+            'power_consumption': 0.0,
+            'detection_range_actual': 0.0
+        }
+        
+        # UI components
+        self.fig = None
+        self.axes = {}
+        self.sliders = {}
+        self.checkboxes = {}
+        self.radio_buttons = {}
+        self.animation = None
+        
+        self.setup_configurable_display()
+        self.load_demo_scenario()
+        
+    def apply_configuration(self, config: RadarConfiguration):
+        """Apply configuration to all radar components"""
+        # Update signal processor
+        self.signal_processor.detection_threshold = config.detection_threshold
+        self.signal_processor.false_alarm_rate = config.false_alarm_rate
+        
+        # Update target detector
+        self.target_detector.min_detections_for_confirmation = config.min_hits_for_confirmation
+        self.target_detector.association_distance_threshold = config.max_association_distance
+        
+        # Update tracker
+        self.tracker.max_association_distance = config.max_association_distance
+        self.tracker.min_hits_for_confirmation = config.min_hits_for_confirmation
+        self.tracker.max_missed_detections = config.max_missed_detections
+        self.tracker.max_track_age_without_update = config.track_aging_time
+        
+        # Update data generator range
+        self.data_generator.max_range_km = config.max_range_km
+        
+        # Calculate derived parameters
+        self.calculate_performance_metrics(config)
+        
+        self.config_changed = True
+        self.metrics['config_changes'] += 1
+        
+        print(f"🔧 Configuration applied:")
+        print(f"   • Range: {config.min_range_km:.1f}-{config.max_range_km:.1f}km")
+        print(f"   • Threshold: {config.detection_threshold:.3f}")
+        print(f"   • Power: {config.transmitter_power_kw:.0f}kW")
+        
+    def calculate_performance_metrics(self, config: RadarConfiguration):
+        """Calculate performance metrics based on configuration"""
+        # Simplified radar range equation: R = (P * G^2 * σ * λ^2) / ((4π)^3 * S_min)
+        # Estimate actual detection range based on parameters
+        power_factor = config.transmitter_power_kw / 100.0  # Normalized to 100kW
+        gain_factor = (10 ** (config.antenna_gain_db / 10)) / (10 ** (35.0 / 10))  # Normalized to 35dB
+        sensitivity_factor = 1.0 / config.detection_threshold
+        
+        self.metrics['detection_range_actual'] = config.max_range_km * power_factor * gain_factor * sensitivity_factor * 0.3
+        self.metrics['power_consumption'] = config.transmitter_power_kw * 1.2  # Include cooling, etc.
+        
+    def setup_configurable_display(self):
+        """Setup configurable radar display with control panels"""
+        plt.style.use('dark_background')
+        self.fig = plt.figure(figsize=(20, 14))
+        self.fig.patch.set_facecolor('black')
+        
+        # Create complex layout for configuration interface
+        gs = self.fig.add_gridspec(4, 6, height_ratios=[3, 1, 1, 1], width_ratios=[3, 1, 1, 1, 1, 1])
+        
+        # Main radar display
+        self.axes['radar'] = self.fig.add_subplot(gs[0, :3], projection='polar')
+        self.setup_radar_scope()
+        
+        # Configuration panels
+        self.axes['presets'] = self.fig.add_subplot(gs[0, 3])
+        self.axes['detection'] = self.fig.add_subplot(gs[0, 4])
+        self.axes['tracking'] = self.fig.add_subplot(gs[0, 5])
+        
+        # Slider panels
+        self.axes['range_sliders'] = self.fig.add_subplot(gs[1, :3])
+        self.axes['sensitivity_sliders'] = self.fig.add_subplot(gs[2, :3])
+        self.axes['power_sliders'] = self.fig.add_subplot(gs[3, :3])
+        
+        # Status panels
+        self.axes['status'] = self.fig.add_subplot(gs[1, 3])
+        self.axes['performance'] = self.fig.add_subplot(gs[1, 4])
+        self.axes['alerts'] = self.fig.add_subplot(gs[1, 5])
+        
+        # Filter controls
+        self.axes['filters'] = self.fig.add_subplot(gs[2, 3])
+        self.axes['display'] = self.fig.add_subplot(gs[2, 4])
+        self.axes['system'] = self.fig.add_subplot(gs[2, 5])
+        
+        # Control buttons
+        self.axes['controls'] = self.fig.add_subplot(gs[3, 3:])
+        
+        # Style all panels
+        for name, ax in self.axes.items():
+            if name not in ['radar', 'range_sliders', 'sensitivity_sliders', 'power_sliders']:
+                ax.set_facecolor('#001122')
+                for spine in ax.spines.values():
+                    spine.set_color('#00ff00')
+                    spine.set_linewidth(1)
+                ax.tick_params(colors='#00ff00', labelsize=8)
+        
+        # Setup interactive controls
+        self.setup_sliders()
+        self.setup_preset_buttons()
+        self.setup_filter_controls()
+        
+        # Title
+        self.fig.suptitle('CONFIGURABLE RADAR SYSTEM - REAL-TIME PARAMETER ADJUSTMENT', 
+                         fontsize=18, color='#00ff00', weight='bold', y=0.95)
+    
+    def setup_radar_scope(self):
+        """Configure the main radar PPI scope"""
+        ax = self.axes['radar']
+        ax.set_facecolor('black')
+        ax.set_ylim(0, self.current_config.max_range_km)
+        ax.set_title('CONFIGURABLE RADAR PPI SCOPE\nReal-Time Parameter Control', 
+                    color='#00ff00', pad=20, fontsize=14, weight='bold')
+        
+        # Dynamic range rings based on configuration
+        max_range = self.current_config.max_range_km
+        ring_interval = max_range / 4
+        
+        for i in range(1, 5):
+            r = ring_interval * i
+            circle = Circle((0, 0), r, fill=False, color='#00ff00', alpha=0.3, linewidth=1)
+            ax.add_patch(circle)
+            ax.text(np.pi/4, r-ring_interval*0.1, f'{r:.0f}km', color='#00ff00', fontsize=10, ha='center')
+        
+        # Bearing lines
+        for angle in range(0, 360, 30):
+            rad = np.radians(angle)
+            ax.plot([rad, rad], [0, max_range], color='#00ff00', alpha=0.2, linewidth=0.5)
+            ax.text(rad, max_range*1.05, f'{angle}°', color='#00ff00', fontsize=9, ha='center')
+        
+        # Configure polar display
+        ax.set_theta_direction(-1)
+        ax.set_theta_zero_location('N')
+        ax.grid(True, color='#00ff00', alpha=0.2)
+        ax.set_rticks([])
+        ax.set_thetagrids([])
+    
+    
