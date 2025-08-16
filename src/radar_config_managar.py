@@ -803,4 +803,322 @@ UPDATE: {self.current_config.update_rate_hz:.1f}Hz
         
         return filtered_targets
     
+    def update_configurable_radar_display(self):
+        """Update radar display with configuration-dependent features"""
+        ax = self.axes['radar']
+        ax.clear()
+        
+        # Redraw scope with current configuration
+        max_range = self.current_config.max_range_km
+        ax.set_ylim(0, max_range)
+        
+        # Dynamic range rings
+        ring_interval = max_range / 4
+        for i in range(1, 5):
+            r = ring_interval * i
+            circle = Circle((0, 0), r, fill=False, color='#00ff00', alpha=0.3, linewidth=1)
+            ax.add_patch(circle)
+            ax.text(np.pi/4, r-ring_interval*0.1, f'{r:.0f}km', color='#00ff00', fontsize=10, ha='center')
+        
+        # Bearing lines
+        for angle in range(0, 360, 30):
+            rad = np.radians(angle)
+            ax.plot([rad, rad], [0, max_range], color='#00ff00', alpha=0.2, linewidth=0.5)
+        
+        # Configuration-dependent sweep beam
+        sweep_rad = np.radians(self.sweep_angle)
+        beam_width_rad = np.radians(self.current_config.beam_width_deg)
+        
+        # Beam intensity based on power
+        power_factor = min(1.0, self.current_config.transmitter_power_kw / 200.0)
+        beam_alpha = 0.2 + 0.3 * power_factor
+        
+        # Main beam
+        beam = Wedge((0, 0), max_range,
+                    np.degrees(sweep_rad - beam_width_rad/2),
+                    np.degrees(sweep_rad + beam_width_rad/2),
+                    alpha=beam_alpha, color='#00ff00')
+        ax.add_patch(beam)
+        
+        # Bright sweep line with power-dependent intensity
+        line_color = '#00ff00' if power_factor > 0.5 else '#88ff88'
+        ax.plot([sweep_rad, sweep_rad], [0, max_range], 
+               color=line_color, linewidth=2 + power_factor*2, alpha=0.9)
+        
+        # Configuration-dependent sweep trail
+        trail_length = int(self.current_config.trail_length_sec / 3)  # Approximate frames
+        if len(self.sweep_history) > 0:
+            display_trail = min(len(self.sweep_history), trail_length)
+            for i, (angle, timestamp) in enumerate(self.sweep_history[-display_trail:]):
+                age_factor = (i + 1) / display_trail
+                alpha = 0.05 + 0.1 * age_factor * self.current_config.brightness
+                trail_rad = np.radians(angle)
+                ax.plot([trail_rad, trail_rad], [0, max_range], 
+                       color='#00ff00', linewidth=1, alpha=alpha)
+        
+        # Add current sweep to history
+        self.sweep_history.append((self.sweep_angle, self.current_time))
+        if len(self.sweep_history) > 100:
+            self.sweep_history = self.sweep_history[-100:]
+        
+        # Display confirmed tracks with configuration-dependent styling
+        confirmed_tracks = self.tracker.get_confirmed_tracks()
+        for track in confirmed_tracks:
+            self.draw_configurable_track(ax, track)
+        
+        # Configuration status overlay
+        config_text = (f'MODE: {self.current_config.current_mode.value} | '
+                      f'PWR: {self.current_config.transmitter_power_kw:.0f}kW | '
+                      f'THR: {self.current_config.detection_threshold:.3f}')
+        
+        ax.text(0.02, 0.98, config_text, transform=ax.transAxes, 
+               color='#ffff00', fontsize=12, weight='bold', verticalalignment='top')
+        
+        ax.text(0.02, 0.93, f'TRACKS: {len(confirmed_tracks)}', transform=ax.transAxes,
+               color='#00ff00', fontsize=11, verticalalignment='top')
+        
+        ax.set_theta_direction(-1)
+        ax.set_theta_zero_location('N')
+        ax.grid(True, color='#00ff00', alpha=0.2)
+        ax.set_rticks([])
+        ax.set_thetagrids([])
+    
+    def draw_configurable_track(self, ax, track):
+        """Draw track with configuration-dependent styling"""
+        # Convert to polar coordinates
+        range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+        bearing_rad = np.arctan2(track.state.x, track.state.y)
+        
+        if range_km > self.current_config.max_range_km:
+            return
+            
+        # Configuration-dependent track styling
+        brightness_factor = self.current_config.brightness
+        contrast_factor = self.current_config.contrast
+        
+        # Track classification colors with brightness adjustment
+        if track.classification == 'aircraft':
+            base_color = np.array([1.0, 1.0, 0.0])  # Yellow
+            marker = '^'
+            size = 150
+        elif track.classification == 'ship':
+            base_color = np.array([0.0, 1.0, 1.0])  # Cyan
+            marker = 's'
+            size = 130
+        else:
+            base_color = np.array([1.0, 0.5, 0.0])  # Orange
+            marker = 'o'
+            size = 110
+        
+        # Apply brightness and contrast
+        color = base_color * brightness_factor
+        color = np.clip(color, 0, 1)
+        
+        # Track symbol with configuration-dependent visibility
+        alpha = 0.7 + 0.3 * brightness_factor
+        ax.scatter(bearing_rad, range_km, s=size*contrast_factor, c=[color], 
+                  marker=marker, alpha=alpha, edgecolors='white', linewidths=2, zorder=20)
+        
+        # Track information with configuration-dependent detail level
+        info_detail = "high" if self.current_config.update_rate_hz > 5 else "low"
+        
+        if info_detail == "high":
+            info_text = f'T{track.id[-3:]}\n{track.classification.upper()}\n{track.state.speed_kmh:.0f}kt\nQ:{track.quality_score:.1f}'
+        else:
+            info_text = f'T{track.id[-3:]}\n{track.state.speed_kmh:.0f}kt'
+            
+        ax.text(bearing_rad, range_km + self.current_config.max_range_km*0.05, 
+               info_text, color=color, fontsize=9, ha='center', va='bottom', 
+               weight='bold', alpha=alpha)
+        
+        # Velocity vector based on configuration
+        if self.current_config.update_rate_hz > 3:  # Only show for high update rates
+            speed = np.sqrt(track.state.vx**2 + track.state.vy**2)
+            if speed > 0.5:
+                vel_scale = self.current_config.max_range_km * 0.1
+                end_x = track.state.x + track.state.vx * vel_scale
+                end_y = track.state.y + track.state.vy * vel_scale
+                end_range = np.sqrt(end_x**2 + end_y**2)
+                end_bearing = np.arctan2(end_x, end_y)
+                
+                if end_range <= self.current_config.max_range_km:
+                    ax.annotate('', xy=(end_bearing, end_range),
+                               xytext=(bearing_rad, range_km),
+                               arrowprops=dict(arrowstyle='->', color=color, 
+                                             lw=2, alpha=alpha*0.8))
+    
+    def update_all_config_panels(self):
+        """Update all configuration panels"""
+        self.update_status_panel()
+        self.update_performance_panel()
+        self.update_alerts_panel()
+        self.update_filter_controls()
+    
+    def update_static_displays(self):
+        """Update displays when system is stopped"""
+        self.update_filter_controls()
+    
+    def update_status_panel(self):
+        """Update system status with configuration info"""
+        ax = self.axes['status']
+        ax.clear()
+        ax.set_title('CONFIG STATUS', color='#00ff00', fontsize=11, weight='bold')
+        
+        status_text = f"""
+STATUS: {'ACTIVE' if self.is_running else 'STANDBY'}
+PRESET: CUSTOM
+
+RANGE: {self.current_config.min_range_km:.1f}-{self.current_config.max_range_km:.0f}km
+POWER: {self.current_config.transmitter_power_kw:.0f}kW
+SWEEP: {self.current_config.sweep_rate_rpm:.0f}RPM
+
+ACTUAL RANGE: {self.metrics['detection_range_actual']:.0f}km
+POWER DRAW: {self.metrics['power_consumption']:.0f}kW
+        """.strip()
+        
+        ax.text(0.05, 0.95, status_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=8, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_performance_panel(self):
+        """Update performance metrics with configuration impact"""
+        ax = self.axes['performance']
+        ax.clear()
+        ax.set_title('PERFORMANCE', color='#00ff00', fontsize=11, weight='bold')
+        
+        # Calculate configuration efficiency
+        efficiency = 100 * (self.metrics['confirmed_tracks'] / max(1, self.metrics['total_detections']))
+        false_alarm_rate = 100 * (self.metrics['false_alarms'] / max(1, self.metrics['total_detections']))
+        
+        perf_text = f"""
+FRAME RATE: {self.metrics['frame_rate']:.1f} FPS
+PROC TIME: {self.metrics['avg_processing_time']*1000:.1f}ms
+
+DETECTIONS: {self.metrics['total_detections']}
+TRACKS: {self.metrics['confirmed_tracks']}
+EFFICIENCY: {efficiency:.1f}%
+
+FALSE ALARMS: {false_alarm_rate:.1f}%
+CONFIG CHANGES: {self.metrics['config_changes']}
+        """.strip()
+        
+        ax.text(0.05, 0.95, perf_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=8, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_alerts_panel(self):
+        """Update alerts based on configuration"""
+        ax = self.axes['alerts']
+        ax.clear()
+        ax.set_title('ALERTS', color='#00ff00', fontsize=11, weight='bold')
+        
+        alerts = []
+        
+        # Configuration-based alerts
+        if self.current_config.transmitter_power_kw > 300:
+            alerts.append("⚠️ HIGH POWER")
+        if self.current_config.detection_threshold < 0.05:
+            alerts.append("⚠️ HIGH SENSITIVITY")
+        if self.current_config.max_range_km > 400:
+            alerts.append("⚠️ EXTENDED RANGE")
+        if self.metrics['false_alarms'] > 10:
+            alerts.append("⚠️ FALSE ALARMS")
+        
+        # Proximity alerts
+        confirmed_tracks = self.tracker.get_confirmed_tracks()
+        for track in confirmed_tracks:
+            range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+            if range_km < self.current_config.proximity_alert_range:
+                alerts.append(f"🚨 PROXIMITY T{track.id[-3:]}")
+            if track.state.speed_kmh > self.current_config.speed_alert_threshold:
+                alerts.append(f"🚨 HIGH SPEED T{track.id[-3:]}")
+        
+        if not alerts:
+            alerts.append("✅ ALL NORMAL")
+        
+        alert_text = "\n".join(alerts[:6])  # Show max 6 alerts
+        
+        ax.text(0.05, 0.95, alert_text, transform=ax.transAxes,
+               color='#ffff00' if any('🚨' in alert for alert in alerts) else '#00ff00', 
+               fontsize=8, verticalalignment='top', fontfamily='monospace')
+        ax.axis('off')
+    
+    def on_click(self, event):
+        """Handle mouse clicks for preset selection and controls"""
+        if event.inaxes == self.axes['presets']:
+            # Preset selection
+            x, y = event.xdata, event.ydata
+            if x is not None and y is not None and 0.5 <= x <= 9.5:
+                if 8 <= y <= 9.2:
+                    self.apply_preset(ConfigPreset.AIRPORT_CONTROL)
+                elif 6.5 <= y <= 7.7:
+                    self.apply_preset(ConfigPreset.NAVAL_SURVEILLANCE)
+                elif 5 <= y <= 6.2:
+                    self.apply_preset(ConfigPreset.MILITARY_DEFENSE)
+                elif 3.5 <= y <= 4.7:
+                    self.apply_preset(ConfigPreset.WEATHER_MONITORING)
+                elif 2 <= y <= 3.2:
+                    self.apply_preset(ConfigPreset.COASTAL_PATROL)
+                elif 0.5 <= y <= 1.7:
+                    self.save_current_config()
+                    
+        elif event.inaxes == self.axes['controls']:
+            # System controls
+            x, y = event.xdata, event.ydata
+            if x is not None and y is not None:
+                # Implement system control buttons
+                pass
+    
+    def apply_preset(self, preset: ConfigPreset):
+        """Apply a configuration preset and update sliders"""
+        if preset in self.config_manager.presets:
+            self.current_config = RadarConfiguration(**self.config_manager.presets[preset].__dict__)
+            self.apply_configuration(self.current_config)
+            
+            # Update slider positions
+            self.sliders['max_range'].set_val(self.current_config.max_range_km)
+            self.sliders['min_range'].set_val(self.current_config.min_range_km)
+            self.sliders['threshold'].set_val(self.current_config.detection_threshold)
+            self.sliders['false_alarm'].set_val(self.current_config.false_alarm_rate)
+            self.sliders['power'].set_val(self.current_config.transmitter_power_kw)
+            self.sliders['sweep_rate'].set_val(self.current_config.sweep_rate_rpm)
+            
+            # Redraw radar scope
+            self.setup_radar_scope()
+            
+            print(f"🎛️  Applied preset: {preset.value}")
+            print(self.config_manager.get_config_summary(self.current_config))
+    
+    def save_current_config(self):
+        """Save current configuration as custom preset"""
+        self.config_manager.save_preset("Custom", self.current_config)
+        print("💾 Current configuration saved as Custom preset")
+    
+    def start_system(self):
+        """Start the configurable radar system"""
+        if not self.is_running:
+            self.is_running = True
+            self.current_time = 0.0
+            self.sweep_angle = 0.0
+            print(f"🚀 Configurable Radar System STARTED")
+            print(f"   Current configuration: {self.current_config.transmitter_power_kw}kW, {self.current_config.max_range_km}km range")
+    
+    def stop_system(self):
+        """Stop the radar system"""
+        if self.is_running:
+            self.is_running = False
+            print("🛑 Configurable Radar System STOPPED")
+    
+    def reset_system(self):
+        """Reset the system"""
+        self.stop_system()
+        self.tracker = MultiTargetTracker()
+        self.apply_configuration(self.current_config)  # Reapply current config
+        self.current_time = 0.0
+        self.sweep_angle = 0.0
+        self.target_trails = {}
+        print("🔄 Configurable System RESET")
+    
     
