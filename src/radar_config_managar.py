@@ -1121,4 +1121,57 @@ CONFIG CHANGES: {self.metrics['config_changes']}
         self.target_trails = {}
         print("🔄 Configurable System RESET")
     
-    
+    def run_demo(self):
+        """Run the configurable radar system demonstration"""
+        print("\n" + "="*80)
+        print("🎛️  DAY 7 TASK 2: CONFIGURABLE RADAR SYSTEM")
+        print("="*80)
+        print("\n🎯 CONFIGURATION FEATURES:")
+        print("✅ Real-time parameter adjustment with sliders")
+        print("✅ Configuration presets for different missions")
+        print("✅ Live performance impact monitoring")
+        print("✅ Parameter validation with safety limits")
+        print("✅ Interactive control interface")
+        print("\n🎛️  REAL-TIME CONTROLS:")
+        print("• Adjust sliders to change radar parameters instantly")
+        print("• Click preset buttons for quick configuration")
+        print("• Monitor performance impact in real-time")
+        print("• Watch alerts for configuration warnings")
+        print("\n📋 CONFIGURATION PRESETS:")
+        print("• Airport Control: High precision, moderate range")
+        print("• Naval Surveillance: Long range, sea clutter rejection")
+        print("• Military Defense: Maximum performance")
+        print("• Weather Monitoring: Specialized for meteorology")
+        print("• Coastal Patrol: Balanced for mixed environment")
+        print("\n⚡ ADJUSTABLE PARAMETERS:")
+        print("• Range: 10-500km | Sensitivity: 0.01-0.5 | Power: 10-500kW")
+        print("• Sweep Rate: 5-120 RPM | Filters: ON/OFF toggles")
+        print("="*80)
+        
+        # Connect mouse events
+        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+        
+        # Start the system automatically
+        self.start_system()
+        
+        # Start animation
+        self.animation = FuncAnimation(self.fig, self.animate, interval=100,
+                                     blit=False, cache_frame_data=False)
+        
+        plt.tight_layout()
+        plt.show()
+        
+        print("\n🎉 Configurable Radar System demonstration complete!")
+        print("✅ Real-time configuration system operational")
+
+def main():
+    """Run the configurable radar demonstration"""
+    try:
+        system = ConfigurableRadarSystem()
+        system.run_demo()
+    except Exception as e:
+        print(f"❌ Error running configurable demo: {e}")
+        print("Make sure all radar components are available")
+
+if __name__ == "__main__":
+    main()
