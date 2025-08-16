@@ -309,6 +309,18 @@ class ConfigurableRadarSystem:
     def __init__(self):
         print("🎛️  Initializing Configurable Radar System...")
         
+        # Initialize metrics first
+        self.metrics = {
+            'confirmed_tracks': 0,
+            'total_detections': 0,
+            'false_alarms': 0,
+            'config_changes': 0,
+            'avg_processing_time': 0.0,
+            'frame_rate': 0.0,
+            'power_consumption': 0.0,
+            'detection_range_actual': 0.0
+        }
+        
         # Core components
         self.data_generator = RadarDataGenerator(max_range_km=200)
         self.signal_processor = SignalProcessor()
@@ -329,18 +341,6 @@ class ConfigurableRadarSystem:
         self.sweep_history = []
         self.target_trails = {}
         self.config_changed = False
-        
-        # Performance metrics
-        self.metrics = {
-            'confirmed_tracks': 0,
-            'total_detections': 0,
-            'false_alarms': 0,
-            'config_changes': 0,
-            'avg_processing_time': 0.0,
-            'frame_rate': 0.0,
-            'power_consumption': 0.0,
-            'detection_range_actual': 0.0
-        }
         
         # UI components
         self.fig = None
