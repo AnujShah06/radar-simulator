@@ -464,4 +464,197 @@ class HighPerformanceRadarSystem:
         
         return []
     
+    def process_optimized_detection(self):
+        """Optimized detection processing with performance limits"""
+        # Update target positions (efficient)
+        self.data_generator.update_targets(1.0 / self.metrics.target_fps)
+        
+        # Update sweep with performance-based rate
+        quality_settings = self.quality_manager.get_current_settings()
+        sweep_rate = 30.0 * quality_settings.update_frequency  # Adaptive sweep rate
+        self.sweep_angle = (self.sweep_angle + sweep_rate * (1.0 / self.metrics.target_fps)) % 360
+        
+        # Get detections with quality-based beam width
+        beam_width = 20.0 if quality_settings.track_detail_level > 2 else 30.0
+        detections = self.data_generator.simulate_radar_detection(
+            self.sweep_angle, sweep_width_deg=beam_width
+        )
+        
+        if not detections:
+            return
+        
+        # Limit processing load based on performance
+        max_detections = min(len(detections), self.max_targets_per_frame)
+        limited_detections = detections[:max_detections]
+        
+        # Process through optimized pipeline
+        targets = self.target_detector.process_raw_detections(limited_detections)
+        
+        if targets:
+            # Limit tracking updates based on quality
+            max_tracks = min(len(targets), int(self.max_targets_per_frame * quality_settings.update_frequency))
+            limited_targets = targets[:max_tracks]
+            
+            # Update tracker
+            active_tracks = self.tracker.update(limited_targets, self.current_time)
+            
+            # Update metrics
+            confirmed_tracks = self.tracker.get_confirmed_tracks()
+            if len(confirmed_tracks) != getattr(self, '_last_track_count', 0):
+                self.render_manager.mark_dirty('tracks')
+                self._last_track_count = len(confirmed_tracks)
+    
+    def render_optimized_display(self, quality_level: QualityLevel):
+        """Optimized rendering with quality-based detail levels"""
+        ax = self.axes['radar']
+        quality_settings = self.quality_manager.get_current_settings()
+        
+        # Only clear and redraw if necessary
+        if self.render_manager.is_dirty('sweep') or self.frame_count % 5 == 0:
+            ax.clear()
+            self.setup_optimized_radar_scope()
+        
+        # Optimized sweep beam rendering
+        self.render_optimized_sweep(ax, quality_settings)
+        
+        # Optimized track rendering
+        if self.render_manager.is_dirty('tracks') or self.frame_count % 3 == 0:
+            self.render_optimized_tracks(ax, quality_settings)
+            self.render_manager.clear_dirty('tracks')
+        
+        # Performance status overlay
+        ax.text(0.02, 0.98, f'FPS: {self.metrics.current_fps:.1f} | Quality: {quality_level.value}', 
+               transform=ax.transAxes, color='#ffff00', fontsize=12, weight='bold', 
+               verticalalignment='top')
+        
+        # Clear sweep dirty flag
+        self.render_manager.clear_dirty('sweep')
+    
+    def render_optimized_sweep(self, ax, quality_settings: QualitySettings):
+        """Render sweep with quality-based optimizations"""
+        sweep_rad = np.radians(self.sweep_angle)
+        beam_width = np.radians(20.0)
+        
+        # Quality-based beam rendering
+        if quality_settings.glow_effects:
+            # Full beam with glow
+            beam = Wedge((0, 0), 200, np.degrees(sweep_rad - beam_width/2),
+                        np.degrees(sweep_rad + beam_width/2), alpha=0.3, color='#00ff00')
+            ax.add_patch(beam)
+        
+        # Bright sweep line
+        line_width = 3 if quality_settings.glow_effects else 2
+        ax.plot([sweep_rad, sweep_rad], [0, 200], color='#00ff00', 
+               linewidth=line_width, alpha=0.9)
+        
+        # Optimized sweep trail
+        trail_length = min(len(self.sweep_history), quality_settings.sweep_trail_length)
+        if trail_length > 0:
+            # Batch render trail for performance
+            trail_angles = []
+            trail_alphas = []
+            
+            for i, (angle, timestamp) in enumerate(list(self.sweep_history)[-trail_length:]):
+                age_factor = (i + 1) / trail_length
+                alpha = 0.05 + 0.1 * age_factor
+                trail_angles.append(np.radians(angle))
+                trail_alphas.append(alpha)
+            
+            # Render multiple trail lines efficiently
+            for angle, alpha in zip(trail_angles[::2], trail_alphas[::2]):  # Skip every other for performance
+                ax.plot([angle, angle], [0, 200], color='#00ff00', linewidth=1, alpha=alpha)
+        
+        # Add current sweep to history
+        self.sweep_history.append((self.sweep_angle, self.current_time))
+    
+    def render_optimized_tracks(self, ax, quality_settings: QualitySettings):
+        """Render tracks with quality-based optimizations"""
+        confirmed_tracks = self.tracker.get_confirmed_tracks()
+        
+        # Limit rendered tracks based on quality
+        max_tracks = min(len(confirmed_tracks), 
+                        int(50 * quality_settings.update_frequency))
+        tracks_to_render = confirmed_tracks[:max_tracks]
+        
+        for track in tracks_to_render:
+            # Convert to polar coordinates
+            range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+            bearing_rad = np.arctan2(track.state.x, track.state.y)
+            
+            if range_km > 200:
+                continue
+            
+            # Quality-based track symbol
+            if track.classification == 'aircraft':
+                color = '#ffff00'
+                marker = '^'
+                size = 120 * quality_settings.target_symbol_size
+            elif track.classification == 'ship':
+                color = '#00ffff'
+                marker = 's'
+                size = 100 * quality_settings.target_symbol_size
+            else:
+                color = '#ff8800'
+                marker = 'o'
+                size = 90 * quality_settings.target_symbol_size
+            
+            # Render track symbol
+            alpha = 0.9 if quality_settings.glow_effects else 0.7
+            ax.scatter(bearing_rad, range_km, s=size, c=color, marker=marker, 
+                      alpha=alpha, edgecolors='white', linewidths=1, zorder=20)
+            
+            # Quality-based track information
+            if quality_settings.text_detail_level > 0:
+                if quality_settings.text_detail_level == 2:
+                    info_text = f'T{track.id[-3:]}\n{track.classification[:4].upper()}\n{track.state.speed_kmh:.0f}kt'
+                else:
+                    info_text = f'T{track.id[-3:]}\n{track.state.speed_kmh:.0f}kt'
+                
+                ax.text(bearing_rad, range_km + 10, info_text, color=color, 
+                       fontsize=8, ha='center', va='bottom', weight='bold')
+            
+            # Quality-based velocity vectors
+            if quality_settings.velocity_vectors and quality_settings.track_detail_level > 1:
+                speed = np.sqrt(track.state.vx**2 + track.state.vy**2)
+                if speed > 0.5:
+                    vel_scale = 200 * 0.1
+                    end_x = track.state.x + track.state.vx * vel_scale
+                    end_y = track.state.y + track.state.vy * vel_scale
+                    end_range = np.sqrt(end_x**2 + end_y**2)
+                    end_bearing = np.arctan2(end_x, end_y)
+                    
+                    if end_range <= 200:
+                        ax.annotate('', xy=(end_bearing, end_range),
+                                   xytext=(bearing_rad, range_km),
+                                   arrowprops=dict(arrowstyle='->', color=color, 
+                                                 lw=1, alpha=0.7))
+            
+            # Optimized track trails
+            self.render_optimized_trail(ax, track, color, quality_settings)
+    
+    def render_optimized_trail(self, ax, track, color, quality_settings: QualitySettings):
+        """Render track trail with optimizations"""
+        if track.id not in self.target_trails:
+            self.target_trails[track.id] = deque(maxlen=quality_settings.max_trail_length)
+        
+        trail = self.target_trails[track.id]
+        
+        # Add current position to trail
+        range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+        bearing_rad = np.arctan2(track.state.x, track.state.y)
+        trail.append((bearing_rad, range_km, self.current_time))
+        
+        # Render trail with quality-based detail
+        if len(trail) > 1 and quality_settings.track_detail_level > 0:
+            trail_points = list(trail)
+            trail_step = max(1, len(trail_points) // (quality_settings.max_trail_length // 4))
+            
+            for i in range(0, len(trail_points) - trail_step, trail_step):
+                b1, r1, t1 = trail_points[i]
+                b2, r2, t2 = trail_points[i + trail_step]
+                
+                age = self.current_time - t1
+                alpha = max(0.1, 1.0 - age / 20.0)  # 20 second trail fade
+                ax.plot([b1, b2], [r1, r2], color=color, alpha=alpha, linewidth=1)
+    
     
