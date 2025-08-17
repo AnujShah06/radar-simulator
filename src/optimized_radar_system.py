@@ -838,4 +838,190 @@ GC INTERVAL: {self.garbage_collection_interval}
         
         ax.axis('off')
     
+    def update_metrics_timeline(self):
+        """Update performance metrics timeline"""
+        ax = self.axes['metrics']
+        ax.clear()
+        ax.set_title('PERFORMANCE TIMELINE', color='#00ff00', fontsize=11, weight='bold')
+        
+        # Plot recent performance history
+        if len(self.metrics.frame_times) > 10:
+            times = list(self.metrics.frame_times)[-60:]  # Last 60 frames
+            fps_values = [1.0/max(t, 0.001) for t in times]
+            
+            x_vals = np.arange(len(fps_values))
+            
+            # FPS line
+            ax.plot(x_vals, fps_values, color='#00ff00', linewidth=2, label='FPS')
+            ax.axhline(y=60, color='#ffff00', linestyle='--', alpha=0.7, label='Target 60 FPS')
+            ax.axhline(y=30, color='#ff8800', linestyle='--', alpha=0.7, label='30 FPS')
+            
+            ax.set_ylim(0, 80)
+            ax.set_xlim(0, max(60, len(fps_values)))
+            ax.legend(loc='upper right', fontsize=8)
+            ax.grid(True, alpha=0.3)
+            
+            # Color code based on performance
+            avg_fps = np.mean(fps_values[-10:]) if len(fps_values) >= 10 else 0
+            if avg_fps >= 50:
+                timeline_color = '#00ff00'
+                status = 'OPTIMAL'
+            elif avg_fps >= 30:
+                timeline_color = '#ffff00'
+                status = 'GOOD'
+            else:
+                timeline_color = '#ff4400'
+                status = 'STRESSED'
+            
+            ax.text(0.02, 0.95, f'STATUS: {status} | AVG: {avg_fps:.1f} FPS', 
+                   transform=ax.transAxes, color=timeline_color, fontsize=10, weight='bold')
+        
+        ax.set_facecolor('#000011')
+        for spine in ax.spines.values():
+            spine.set_color('#00ff00')
+        ax.tick_params(colors='#00ff00', labelsize=8)
     
+    def on_click(self, event):
+        """Handle mouse clicks for system controls"""
+        if event.inaxes == self.axes['controls']:
+            x, y = event.xdata, event.ydata
+            if x is not None and y is not None and 1 <= x <= 9:
+                if 7.5 <= y <= 9:  # START
+                    self.start_optimized_system()
+                elif 5.5 <= y <= 7:  # STOP
+                    self.stop_optimized_system()
+                elif 3.5 <= y <= 5:  # RESET
+                    self.reset_optimized_system()
+                elif 1.5 <= y <= 3:  # OPTIMIZE
+                    self.force_optimization()
+    
+    def start_optimized_system(self):
+        """Start the optimized radar system"""
+        if not self.is_running:
+            self.is_running = True
+            self.current_time = 0.0
+            self.sweep_angle = 0.0
+            self.frame_count = 0
+            
+            # Reset performance metrics
+            self.metrics = PerformanceMetrics()
+            self.quality_manager = AdaptiveQualityManager(target_fps=60.0)
+            
+            print("⚡ High-Performance Radar System STARTED")
+            print(f"   Target: {self.metrics.target_fps} FPS with adaptive quality")
+            print("   Performance optimizations active")
+    
+    def stop_optimized_system(self):
+        """Stop the optimized radar system"""
+        if self.is_running:
+            self.is_running = False
+            
+            # Performance summary
+            if len(self.metrics.frame_times) > 10:
+                avg_fps = np.mean(list(self.metrics.frame_times)[-30:])
+                avg_fps = 1.0 / max(avg_fps, 0.001)
+                print(f"🛑 System STOPPED - Average FPS: {avg_fps:.1f}")
+                print(f"   Quality adjustments: {self.metrics.quality_adjustments}")
+                print(f"   Frames dropped: {self.metrics.frames_dropped}")
+    
+    def reset_optimized_system(self):
+        """Reset the optimized system"""
+        self.stop_optimized_system()
+        
+        # Reset tracker and clean up
+        self.tracker = MultiTargetTracker()
+        self.configure_for_performance()
+        
+        # Clear all cached data
+        self.sweep_history.clear()
+        self.target_trails.clear()
+        self.cached_tracks.clear()
+        
+        # Force garbage collection
+        gc.collect()
+        
+        self.current_time = 0.0
+        self.sweep_angle = 0.0
+        self.frame_count = 0
+        
+        print("🔄 Optimized System RESET - All caches cleared")
+    
+    def force_optimization(self):
+        """Force immediate optimization and cleanup"""
+        print("⚡ Forcing optimization...")
+        
+        # Perform immediate cleanup
+        self.perform_memory_cleanup()
+        
+        # Reset quality to ultra and let it adapt
+        self.quality_manager.current_quality = QualityLevel.ULTRA
+        self.quality_manager.quality_change_cooldown = 0
+        
+        # Clear render caches
+        self.render_manager.dirty_flags.clear()
+        self.render_manager.cached_elements.clear()
+        
+        print("✅ Optimization complete")
+    
+    def run_performance_demo(self):
+        """Run the high-performance radar demonstration"""
+        print("\n" + "="*80)
+        print("\n🎯 PERFORMANCE OPTIMIZATIONS:")
+        print("✅ 60+ FPS target with adaptive quality control")
+        print("✅ Memory management with garbage collection")
+        print("✅ Optimized rendering with selective updates")
+        print("✅ Real-time performance monitoring")
+        print("✅ Adaptive detail reduction under load")
+        print("\n⚡ QUALITY LEVELS:")
+        print("• ULTRA: 60+ FPS, full detail, all effects")
+        print("• HIGH: 45+ FPS, high detail, most effects")
+        print("• MEDIUM: 30+ FPS, medium detail, essential effects")
+        print("• LOW: 15+ FPS, basic detail, minimal effects")
+        print("• MINIMAL: Any FPS, essential display only")
+        print("\n📊 PERFORMANCE MONITORING:")
+        print("• Real-time FPS display and frame timing")
+        print("• CPU and memory usage tracking")
+        print("• Quality adjustment logging")
+        print("• Performance timeline visualization")
+        print("\n🎛️  CONTROLS:")
+        print("• START: Begin optimized radar operation")
+        print("• STOP: Stop with performance summary")
+        print("• RESET: Clear all caches and restart")
+        print("• OPTIMIZE: Force immediate optimization")
+        print("\n💡 WATCH FOR:")
+        print("• Green FPS = Optimal (50+ FPS)")
+        print("• Yellow FPS = Good (30-50 FPS)")
+        print("• Red FPS = Stressed (<30 FPS)")
+        print("• Quality level automatically adjusts based on performance")
+        print("="*80)
+        
+        # Connect mouse events
+        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+        
+        # Start the system automatically for demonstration
+        self.start_optimized_system()
+        
+        # Use optimized animation interval (60 FPS target)
+        interval = int(1000 / self.metrics.target_fps)  # ~16.67ms for 60 FPS
+        self.animation = FuncAnimation(self.fig, self.animate_optimized, interval=interval,
+                                     blit=False, cache_frame_data=False)
+        
+        plt.tight_layout()
+        plt.show()
+        
+        print("\n⚡ High-Performance Radar demonstration complete!")
+        print("✅ Professional-grade performance optimization demonstrated")
+
+def main():
+    """Run the high-performance radar demonstration"""
+    try:
+        system = HighPerformanceRadarSystem()
+        system.run_performance_demo()
+    except Exception as e:
+        print(f"❌ Error running performance demo: {e}")
+        print("Make sure all radar components are available")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()
