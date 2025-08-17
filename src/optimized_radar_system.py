@@ -657,4 +657,185 @@ class HighPerformanceRadarSystem:
                 alpha = max(0.1, 1.0 - age / 20.0)  # 20 second trail fade
                 ax.plot([b1, b2], [r1, r2], color=color, alpha=alpha, linewidth=1)
     
+    def cleanup_expired_trails(self):
+        """Clean up expired track trails for memory management"""
+        current_track_ids = {track.id for track in self.tracker.get_confirmed_tracks()}
+        expired_ids = set(self.target_trails.keys()) - current_track_ids
+        
+        for trail_id in expired_ids:
+            del self.target_trails[trail_id]
+        
+        if expired_ids:
+            print(f"🧹 Cleaned up {len(expired_ids)} expired trails")
+    
+    def perform_memory_cleanup(self):
+        """Perform aggressive memory cleanup"""
+        # Force garbage collection
+        collected = gc.collect()
+        
+        # Clear old sweep history
+        if len(self.sweep_history) > 100:
+            # Keep only recent history
+            recent_history = list(self.sweep_history)[-50:]
+            self.sweep_history.clear()
+            self.sweep_history.extend(recent_history)
+        
+        # Clean up tracker
+        self.tracker.cleanup_terminated_tracks()
+        
+        print(f"🧹 Memory cleanup: {collected} objects collected")
+    
+    def update_performance_panels(self):
+        """Update performance monitoring panels"""
+        self.update_performance_metrics_panel()
+        self.update_quality_control_panel()
+        self.update_system_status_panel()
+        self.update_tracks_panel()
+        self.update_controls_panel()
+        self.update_metrics_timeline()
+    
+    def update_performance_panels_only(self):
+        """Update only performance panels when stopped"""
+        self.update_performance_metrics_panel()
+        self.update_quality_control_panel()
+        self.update_system_status_panel()
+        self.update_controls_panel()
+    
+    def update_performance_metrics_panel(self):
+        """Update real-time performance metrics"""
+        ax = self.axes['performance']
+        ax.clear()
+        ax.set_title('PERFORMANCE', color='#00ff00', fontsize=11, weight='bold')
+        
+        # Performance status color coding
+        fps_color = '#00ff00' if self.metrics.current_fps >= 50 else '#ffff00' if self.metrics.current_fps >= 30 else '#ff4400'
+        
+        perf_text = f"""
+FPS: {self.metrics.current_fps:.1f}
+TARGET: {self.metrics.target_fps:.0f}
+FRAME: {self.metrics.avg_frame_time*1000:.1f}ms
+PROC: {self.metrics.avg_processing_time*1000:.1f}ms
+
+CPU: {self.metrics.current_cpu_percent:.1f}%
+MEM: {self.metrics.current_memory_mb:.0f}MB
+
+DROPPED: {self.metrics.frames_dropped}
+ADJUSTS: {self.metrics.quality_adjustments}
+        """.strip()
+        
+        ax.text(0.05, 0.95, perf_text, transform=ax.transAxes,
+               color=fps_color, fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_quality_control_panel(self):
+        """Update adaptive quality control panel"""
+        ax = self.axes['quality']
+        ax.clear()
+        ax.set_title('ADAPTIVE QUALITY', color='#00ff00', fontsize=11, weight='bold')
+        
+        current_quality = self.quality_manager.current_quality
+        quality_settings = self.quality_manager.get_current_settings()
+        
+        # Quality level color coding
+        quality_colors = {
+            QualityLevel.ULTRA: '#00ff00',
+            QualityLevel.HIGH: '#88ff00',
+            QualityLevel.MEDIUM: '#ffff00',
+            QualityLevel.LOW: '#ff8800',
+            QualityLevel.MINIMAL: '#ff4400'
+        }
+        
+        quality_color = quality_colors[current_quality]
+        
+        quality_text = f"""
+LEVEL: {current_quality.value}
+TRAILS: {quality_settings.max_trail_length}
+DETAIL: {quality_settings.track_detail_level}/3
+UPDATE: {quality_settings.update_frequency:.1f}x
+
+GLOW: {'ON' if quality_settings.glow_effects else 'OFF'}
+VECTORS: {'ON' if quality_settings.velocity_vectors else 'OFF'}
+TEXT: {quality_settings.text_detail_level}/2
+        """.strip()
+        
+        ax.text(0.05, 0.95, quality_text, transform=ax.transAxes,
+               color=quality_color, fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_system_status_panel(self):
+        """Update system status panel"""
+        ax = self.axes['system']
+        ax.clear()
+        ax.set_title('SYSTEM STATUS', color='#00ff00', fontsize=11, weight='bold')
+        
+        status_text = f"""
+STATUS: {'ACTIVE' if self.is_running else 'STANDBY'}
+FRAME: {self.frame_count}
+TIME: {self.current_time:.1f}s
+
+TARGETS: {len(self.data_generator.targets)}
+PROCESSING: {'OPTIMIZED' if self.metrics.current_fps > 45 else 'STRESSED'}
+
+MEMORY MGMT: ACTIVE
+GC INTERVAL: {self.garbage_collection_interval}
+        """.strip()
+        
+        system_color = '#00ff00' if self.is_running else '#888888'
+        
+        ax.text(0.05, 0.95, status_text, transform=ax.transAxes,
+               color=system_color, fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_tracks_panel(self):
+        """Update tracks information panel"""
+        ax = self.axes['tracks']
+        ax.clear()
+        ax.set_title('ACTIVE TRACKS', color='#00ff00', fontsize=11, weight='bold')
+        
+        confirmed_tracks = self.tracker.get_confirmed_tracks()
+        
+        if confirmed_tracks:
+            tracks_text = f"CONFIRMED: {len(confirmed_tracks)}\n\n"
+            for i, track in enumerate(confirmed_tracks[:4]):
+                range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+                tracks_text += f"T{track.id[-3:]}: {track.classification[:3].upper()}\n"
+                tracks_text += f"  {range_km:.0f}km {track.state.speed_kmh:.0f}kt\n"
+                if i < 3:
+                    tracks_text += "\n"
+        else:
+            tracks_text = "NO CONFIRMED\nTRACKS"
+            
+        ax.text(0.05, 0.95, tracks_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=8, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_controls_panel(self):
+        """Update system controls panel"""
+        ax = self.axes['controls']
+        ax.clear()
+        ax.set_title('CONTROLS', color='#00ff00', fontsize=11, weight='bold')
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        
+        # Control buttons
+        buttons = [
+            ('START', (1, 7.5, 8, 1.5), '#006600' if not self.is_running else '#333333'),
+            ('STOP', (1, 5.5, 8, 1.5), '#660000' if self.is_running else '#333333'),
+            ('RESET', (1, 3.5, 8, 1.5), '#444444'),
+            ('OPTIMIZE', (1, 1.5, 8, 1.5), '#004466')
+        ]
+        
+        for label, (x, y, w, h), color in buttons:
+            rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.1",
+                                facecolor=color, edgecolor='#00ff00', linewidth=1)
+            ax.add_patch(rect)
+            ax.text(x + w/2, y + h/2, label, ha='center', va='center',
+                   color='#00ff00', fontsize=9, weight='bold')
+        
+        ax.axis('off')
+    
     
