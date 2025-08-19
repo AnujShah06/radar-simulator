@@ -298,3 +298,289 @@ class ObjectPool:
             'total': len(self.available) + len(self.in_use)
         }
 
+class OptimizedRadarSystem:
+    """
+    High-Performance Optimized Radar System
+    
+    This system implements advanced optimization techniques for smooth
+    60+ FPS operation with adaptive quality and efficient resource usage.
+    """
+    
+    def __init__(self):
+        print("⚡ Initializing High-Performance Optimized Radar System...")
+        
+        # Performance management
+        self.settings = PerformanceSettings()
+        self.profiler = PerformanceProfiler()
+        self.quality_manager = AdaptiveQualityManager(self.settings)
+        
+        # Core components with optimization
+        self.data_generator = RadarDataGenerator(max_range_km=200)
+        self.signal_processor = SignalProcessor()
+        self.target_detector = TargetDetector()
+        self.tracker = MultiTargetTracker()
+        
+        # Apply initial optimizations
+        self.apply_optimizations()
+        
+        # System state
+        self.is_running = False
+        self.current_time = 0.0
+        self.sweep_angle = 0.0
+        self.frame_count = 0
+        
+        # Optimized data structures
+        self.sweep_history = deque(maxlen=self.settings.sweep_history)
+        self.target_trails = defaultdict(lambda: deque(maxlen=self.settings.trail_points))
+        self.render_cache = {}
+        
+        # Threading for async processing
+        self.processing_queue = queue.Queue(maxsize=self.settings.processing_queue_size)
+        self.result_queue = queue.Queue()
+        self.worker_threads = []
+        
+        if self.settings.async_processing:
+            self.start_worker_threads()
+        
+        # Memory management
+        self.gc_counter = 0
+        self.last_gc_time = time.time()
+        
+        # Performance monitoring
+        self.performance_history = deque(maxlen=300)  # 5 seconds at 60 FPS
+        self.optimization_log = []
+        
+        # Display components
+        self.fig = None
+        self.axes = {}
+        self.animation = None
+        
+        self.setup_optimized_display()
+        self.load_performance_scenario()
+        
+    def apply_optimizations(self):
+        """Apply performance optimizations to radar components"""
+        # Optimize tracker for performance
+        self.tracker.max_association_distance = 15.0
+        self.tracker.min_hits_for_confirmation = 1
+        self.tracker.max_missed_detections = 10
+        
+        # Optimize signal processor
+        self.signal_processor.detection_threshold = 0.08
+        self.signal_processor.false_alarm_rate = 0.03
+        
+        # Optimize target detector
+        self.target_detector.min_detections_for_confirmation = 1
+        self.target_detector.association_distance_threshold = 12.0
+        
+        print("⚡ Applied performance optimizations:")
+        print("   • Reduced association distances for faster processing")
+        print("   • Optimized confirmation thresholds")
+        print("   • Enabled adaptive quality management")
+        
+    def start_worker_threads(self):
+        """Start worker threads for async processing"""
+        for i in range(self.settings.thread_pool_size):
+            thread = threading.Thread(target=self.worker_function, daemon=True)
+            thread.start()
+            self.worker_threads.append(thread)
+        print(f"⚡ Started {self.settings.thread_pool_size} worker threads")
+    
+    def worker_function(self):
+        """Worker thread function for async processing"""
+        while True:
+            try:
+                task = self.processing_queue.get(timeout=1.0)
+                if task is None:  # Shutdown signal
+                    break
+                
+                # Process task
+                task_type, data = task
+                if task_type == 'detection':
+                    result = self.process_detections_async(data)
+                    self.result_queue.put(('detection_result', result))
+                
+                self.processing_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"⚠️  Worker thread error: {e}")
+    
+    def process_detections_async(self, detection_data):
+        """Process detections asynchronously"""
+        detections, current_time = detection_data
+        
+        # Process through pipeline
+        targets = self.target_detector.process_raw_detections(detections)
+        
+        if targets:
+            # Update tracker
+            active_tracks = self.tracker.update(targets, current_time)
+            confirmed_tracks = self.tracker.get_confirmed_tracks()
+            return confirmed_tracks
+        
+        return []
+    
+    def setup_optimized_display(self):
+        """Setup optimized display with performance monitoring"""
+        plt.style.use('dark_background')
+        self.fig = plt.figure(figsize=(20, 12))
+        self.fig.patch.set_facecolor('black')
+        
+        # Optimized layout
+        gs = self.fig.add_gridspec(3, 5, height_ratios=[3, 1, 1], width_ratios=[3, 1, 1, 1, 1])
+        
+        # Main radar display
+        self.axes['radar'] = self.fig.add_subplot(gs[0, :3], projection='polar')
+        self.setup_radar_scope()
+        
+        # Performance monitoring panels
+        self.axes['performance'] = self.fig.add_subplot(gs[0, 3])
+        self.axes['optimization'] = self.fig.add_subplot(gs[0, 4])
+        
+        # Real-time metrics
+        self.axes['fps_graph'] = self.fig.add_subplot(gs[1, :2])
+        self.axes['cpu_memory'] = self.fig.add_subplot(gs[1, 2])
+        self.axes['quality'] = self.fig.add_subplot(gs[1, 3])
+        self.axes['threading'] = self.fig.add_subplot(gs[1, 4])
+        
+        # System controls
+        self.axes['controls'] = self.fig.add_subplot(gs[2, :2])
+        self.axes['settings'] = self.fig.add_subplot(gs[2, 2])
+        self.axes['profiler'] = self.fig.add_subplot(gs[2, 3])
+        self.axes['status'] = self.fig.add_subplot(gs[2, 4])
+        
+        # Style all panels
+        for name, ax in self.axes.items():
+            if name != 'radar':
+                ax.set_facecolor('#001122')
+                for spine in ax.spines.values():
+                    spine.set_color('#00ff00')
+                    spine.set_linewidth(1)
+                ax.tick_params(colors='#00ff00', labelsize=8)
+        
+        # Title
+        self.fig.suptitle('HIGH-PERFORMANCE OPTIMIZED RADAR SYSTEM - 60+ FPS TARGET', 
+                         fontsize=18, color='#00ff00', weight='bold', y=0.95)
+    
+    def setup_radar_scope(self):
+        """Configure optimized radar PPI scope"""
+        ax = self.axes['radar']
+        ax.set_facecolor('black')
+        ax.set_ylim(0, 200)
+        ax.set_title('OPTIMIZED RADAR PPI SCOPE\nAdaptive Quality & Performance', 
+                    color='#00ff00', pad=20, fontsize=14, weight='bold')
+        
+        # Range rings
+        for r in [50, 100, 150, 200]:
+            circle = Circle((0, 0), r, fill=False, color='#00ff00', alpha=0.3, linewidth=1)
+            ax.add_patch(circle)
+            ax.text(np.pi/4, r-5, f'{r}km', color='#00ff00', fontsize=10, ha='center')
+        
+        # Bearing lines
+        for angle in range(0, 360, 30):
+            rad = np.radians(angle)
+            ax.plot([rad, rad], [0, 200], color='#00ff00', alpha=0.2, linewidth=0.5)
+            ax.text(rad, 210, f'{angle}°', color='#00ff00', fontsize=9, ha='center')
+        
+        # Configure polar display
+        ax.set_theta_direction(-1)
+        ax.set_theta_zero_location('N')
+        ax.grid(True, color='#00ff00', alpha=0.2)
+        ax.set_rticks([])
+        ax.set_thetagrids([])
+    
+    def load_performance_scenario(self):
+        """Load scenario optimized for performance testing"""
+        print("📡 Loading performance test scenario...")
+        
+        # Load enough targets to stress the system
+        aircraft_data = [
+            (-120, 150, 90, 450),   (-80, 180, 45, 380),   (60, 120, 225, 520),
+            (-150, -100, 135, 420), (100, -80, 315, 360),  (0, 180, 180, 600),
+            (-90, 60, 270, 280),    (140, 40, 225, 480),   (-60, -140, 45, 340),
+            (80, 160, 135, 380),    (-180, 20, 90, 520),   (160, -120, 270, 400)
+        ]
+        
+        for x, y, heading, speed in aircraft_data:
+            self.data_generator.add_aircraft(x, y, heading, speed)
+            
+        # Add ships
+        ship_data = [
+            (-160, -140, 45, 25), (140, -160, 270, 18), (-80, -180, 90, 35),
+            (180, -120, 225, 22), (-120, -100, 135, 28)
+        ]
+        
+        for x, y, heading, speed in ship_data:
+            self.data_generator.add_ship(x, y, heading, speed)
+            
+        # Add weather for processing load
+        self.data_generator.add_weather_returns(-100, 100, 40)
+        self.data_generator.add_weather_returns(120, 140, 30)
+        
+        total_targets = len(self.data_generator.targets)
+        print(f"✅ Performance test scenario loaded: {total_targets} targets")
+        print("   • Stress test configuration for performance validation")
+    
+    def animate_optimized(self, frame):
+        """Optimized animation loop with performance monitoring"""
+        self.profiler.start_frame()
+        
+        if not self.is_running:
+            self.update_static_performance_displays()
+            metrics = self.profiler.end_frame()
+            return []
+        
+        # Update system time
+        self.current_time += 1.0 / self.settings.target_fps
+        self.frame_count += 1
+        
+        # Adaptive sweep rate based on performance
+        current_quality = self.quality_manager.current_quality
+        sweep_rate = 30.0 * current_quality  # Adjust sweep rate with quality
+        self.sweep_angle = (self.sweep_angle + sweep_rate * 0.1) % 360
+        
+        # Update target positions
+        detection_start = time.perf_counter()
+        self.data_generator.update_targets(1.0 / self.settings.target_fps)
+        
+        # Process detections
+        self.process_optimized_detection()
+        detection_time = (time.perf_counter() - detection_start) * 1000
+        
+        # Update displays
+        render_start = time.perf_counter()
+        self.update_optimized_radar_display()
+        self.update_performance_panels()
+        render_time = (time.perf_counter() - render_start) * 1000
+        
+        # Memory management
+        self.manage_memory()
+        
+        # End frame and get metrics
+        metrics = self.profiler.end_frame()
+        metrics.detection_time_ms = detection_time
+        metrics.rendering_time_ms = render_time
+        
+        # Update adaptive quality
+        new_quality = self.quality_manager.update_quality(
+            metrics.frame_rate, metrics.frame_time_ms
+        )
+        metrics.quality_level = new_quality
+        
+        # Store performance history
+        self.performance_history.append(metrics.to_dict())
+        
+        # Log significant performance changes
+        if abs(new_quality - current_quality) > 0.1:
+            self.optimization_log.append({
+                'time': self.current_time,
+                'fps': metrics.frame_rate,
+                'quality': new_quality,
+                'reason': 'adaptive_quality_adjustment'
+            })
+            print(f"⚡ Quality adjusted to {new_quality:.2f} (FPS: {metrics.frame_rate:.1f})")
+        
+        return []
+    
+    
