@@ -583,4 +583,264 @@ class OptimizedRadarSystem:
         
         return []
     
+    def process_optimized_detection(self):
+        """Optimized detection processing with async support"""
+        # Get detections with quality-based beam width
+        quality_settings = self.quality_manager.get_quality_settings()
+        beam_width = 20.0 * quality_settings['detail_level']
+        
+        detections = self.data_generator.simulate_radar_detection(
+            self.sweep_angle, sweep_width_deg=beam_width
+        )
+        
+        if not detections:
+            return
+            
+        # Filter detections based on current quality
+        max_detections = int(50 * quality_settings['detail_level'])
+        if len(detections) > max_detections:
+            # Keep strongest detections
+            detections = sorted(detections, 
+                              key=lambda d: d.get('signal_strength', 0), 
+                              reverse=True)[:max_detections]
+        
+        # Process detections
+        if self.settings.async_processing and not self.processing_queue.full():
+            # Async processing
+            try:
+                self.processing_queue.put_nowait(('detection', (detections, self.current_time)))
+            except queue.Full:
+                pass  # Skip this frame if queue is full
+        else:
+            # Synchronous processing
+            targets = self.target_detector.process_raw_detections(detections)
+            if targets:
+                self.tracker.update(targets, self.current_time)
+    
+    def update_optimized_radar_display(self):
+        """Optimized radar display with LOD and culling"""
+        ax = self.axes['radar']
+        ax.clear()
+        self.setup_radar_scope()
+        
+        # Get quality settings
+        quality_settings = self.quality_manager.get_quality_settings()
+        
+        # Optimized sweep beam
+        sweep_rad = np.radians(self.sweep_angle)
+        beam_alpha = 0.2 * quality_settings['detail_level']
+        
+        if quality_settings['effects_enabled']:
+            # Full quality beam
+            beam = Wedge((0, 0), 200, self.sweep_angle - 15, self.sweep_angle + 15,
+                        alpha=beam_alpha, color='#00ff00')
+            ax.add_patch(beam)
+        
+        # Bright sweep line
+        ax.plot([sweep_rad, sweep_rad], [0, 200], 
+               color='#00ff00', linewidth=2, alpha=0.9)
+        
+        # Optimized sweep trail
+        trail_points = quality_settings['trail_points']
+        if len(self.sweep_history) > 0:
+            display_trail = min(len(self.sweep_history), trail_points)
+            for i, (angle, timestamp) in enumerate(list(self.sweep_history)[-display_trail:]):
+                age_factor = (i + 1) / display_trail
+                alpha = 0.05 + 0.1 * age_factor * quality_settings['detail_level']
+                trail_rad = np.radians(angle)
+                ax.plot([trail_rad, trail_rad], [0, 200], 
+                       color='#00ff00', linewidth=1, alpha=alpha)
+        
+        # Add current sweep to history
+        self.sweep_history.append((self.sweep_angle, self.current_time))
+        
+        # Display tracks with LOD
+        confirmed_tracks = self.tracker.get_confirmed_tracks()
+        
+        # Apply culling based on range and importance
+        visible_tracks = []
+        for track in confirmed_tracks:
+            range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+            if range_km <= 200:  # In display range
+                visible_tracks.append((track, range_km))
+        
+        # Sort by importance (closer = more important)
+        visible_tracks.sort(key=lambda x: x[1])
+        
+        # Limit number of displayed tracks based on quality
+        max_tracks = int(50 * quality_settings['detail_level'])
+        display_tracks = visible_tracks[:max_tracks]
+        
+        for track, range_km in display_tracks:
+            self.draw_optimized_track(ax, track, quality_settings)
+        
+        # Performance overlay
+        fps = self.profiler.get_average_fps(10)
+        quality_level = self.quality_manager.current_quality
+        
+        perf_text = f'FPS: {fps:.1f} | Quality: {quality_level:.2f} | Tracks: {len(display_tracks)}'
+        ax.text(0.02, 0.98, perf_text, transform=ax.transAxes, 
+               color='#ffff00', fontsize=12, weight='bold', verticalalignment='top')
+    
+    def draw_optimized_track(self, ax, track, quality_settings):
+        """Draw track with level-of-detail optimization"""
+        # Convert to polar coordinates
+        range_km = np.sqrt(track.state.x**2 + track.state.y**2)
+        bearing_rad = np.arctan2(track.state.x, track.state.y)
+        
+        detail_level = quality_settings['detail_level']
+        
+        # LOD-based track rendering
+        if detail_level > 0.8:
+            # High detail
+            if track.classification == 'aircraft':
+                marker, color, size = '^', '#ffff00', 150
+            elif track.classification == 'ship':
+                marker, color, size = 's', '#00ffff', 130
+            else:
+                marker, color, size = 'o', '#ff8800', 110
+            
+            # Full track symbol with info
+            ax.scatter(bearing_rad, range_km, s=size, c=color, marker=marker, 
+                      alpha=0.9, edgecolors='white', linewidths=2, zorder=20)
+            
+            # Detailed info
+            info_text = f'T{track.id[-3:]}\n{track.classification[:4].upper()}\n{track.state.speed_kmh:.0f}kt'
+            ax.text(bearing_rad, range_km + 10, info_text, color=color, 
+                   fontsize=9, ha='center', va='bottom', weight='bold')
+                   
+        elif detail_level > 0.5:
+            # Medium detail
+            color = '#ffff00' if track.classification == 'aircraft' else '#00ffff'
+            ax.scatter(bearing_rad, range_km, s=80, c=color, marker='o', 
+                      alpha=0.8, zorder=15)
+            
+            # Basic info
+            info_text = f'T{track.id[-3:]}'
+            ax.text(bearing_rad, range_km + 8, info_text, color=color, 
+                   fontsize=8, ha='center', va='bottom')
+        else:
+            # Low detail - just dots
+            color = '#888888'
+            ax.scatter(bearing_rad, range_km, s=20, c=color, marker='.', 
+                      alpha=0.6, zorder=10)
+        
+        # Trail rendering based on quality
+        if detail_level > 0.6 and track.id in self.target_trails:
+            trail = list(self.target_trails[track.id])
+            trail_length = int(len(trail) * detail_level)
+            
+            if len(trail) > 1:
+                for i in range(len(trail) - trail_length, len(trail) - 1):
+                    if i >= 0:
+                        b1, r1, t1 = trail[i]
+                        b2, r2, t2 = trail[i + 1]
+                        age = self.current_time - t1
+                        alpha = max(0.1, 1.0 - age / 20.0) * detail_level
+                        ax.plot([b1, b2], [r1, r2], color=color, alpha=alpha, linewidth=1)
+        
+        # Update trail
+        if detail_level > 0.3:
+            self.target_trails[track.id].append((bearing_rad, range_km, self.current_time))
+    
+    def manage_memory(self):
+        """Efficient memory management"""
+        self.gc_counter += 1
+        
+        # Periodic garbage collection
+        if self.gc_counter >= self.settings.garbage_collect_interval:
+            gc.collect()
+            self.gc_counter = 0
+            
+        # Clean old trail data
+        current_time = self.current_time
+        for track_id in list(self.target_trails.keys()):
+            trail = self.target_trails[track_id]
+            # Remove old trail points
+            while trail and current_time - trail[0][2] > 30.0:
+                trail.popleft()
+            
+            # Remove empty trails
+            if not trail:
+                del self.target_trails[track_id]
+        
+        # Clear render cache periodically
+        if self.frame_count % 300 == 0:  # Every 5 seconds at 60 FPS
+            self.render_cache.clear()
+    
+    def update_performance_panels(self):
+        """Update performance monitoring panels"""
+        self.update_performance_metrics()
+        self.update_optimization_status()
+        self.update_fps_graph()
+        self.update_system_resources()
+        self.update_quality_panel()
+        self.update_threading_status()
+        self.update_profiler_panel()
+    
+    def update_static_performance_displays(self):
+        """Update displays when system is stopped"""
+        self.update_performance_metrics()
+        self.update_optimization_status()
+    
+    def update_performance_metrics(self):
+        """Update main performance metrics panel"""
+        ax = self.axes['performance']
+        ax.clear()
+        ax.set_title('PERFORMANCE METRICS', color='#00ff00', fontsize=11, weight='bold')
+        
+        current_fps = self.profiler.get_average_fps(10)
+        stats = self.profiler.get_performance_stats()
+        
+        perf_text = f"""
+CURRENT FPS: {current_fps:.1f}
+TARGET FPS: {self.settings.target_fps:.0f}
+FRAME TIME: {stats.get('avg_frame_time_ms', 0):.1f}ms
+99%ile TIME: {stats.get('frame_time_99p_ms', 0):.1f}ms
+
+QUALITY: {self.quality_manager.current_quality:.2f}
+EFFICIENCY: {(current_fps/self.settings.target_fps*100):.1f}%
+
+TOTAL FRAMES: {stats.get('total_frames', 0)}
+DROPPED: {stats.get('dropped_frames', 0)}
+DROP RATE: {stats.get('frame_drop_rate', 0):.1f}%
+        """.strip()
+        
+        color = '#00ff00' if current_fps >= self.settings.target_fps * 0.9 else '#ffff00'
+        if current_fps < self.settings.target_fps * 0.7:
+            color = '#ff4400'
+        
+        ax.text(0.05, 0.95, perf_text, transform=ax.transAxes,
+               color=color, fontsize=9, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
+    def update_optimization_status(self):
+        """Update optimization status panel"""
+        ax = self.axes['optimization']
+        ax.clear()
+        ax.set_title('OPTIMIZATIONS', color='#00ff00', fontsize=11, weight='bold')
+        
+        quality_settings = self.quality_manager.get_quality_settings()
+        
+        opt_text = f"""
+ADAPTIVE QUALITY: {'ON' if self.settings.adaptive_quality else 'OFF'}
+LEVEL OF DETAIL: {'ON' if self.settings.level_of_detail else 'OFF'}
+OBJECT CULLING: {'ON' if self.settings.culling_enabled else 'OFF'}
+ASYNC PROCESSING: {'ON' if self.settings.async_processing else 'OFF'}
+
+CURRENT SETTINGS:
+Trail Points: {quality_settings['trail_points']}
+Sweep History: {quality_settings['sweep_history']}
+Detail Level: {quality_settings['detail_level']:.2f}
+Effects: {'ON' if quality_settings['effects_enabled'] else 'OFF'}
+
+OPTIMIZATIONS: {len(self.optimization_log)}
+        """.strip()
+        
+        ax.text(0.05, 0.95, opt_text, transform=ax.transAxes,
+               color='#00ff00', fontsize=8, verticalalignment='top',
+               fontfamily='monospace')
+        ax.axis('off')
+    
     
