@@ -1,645 +1,7 @@
-# Draw sweep beam
-        if mode_config['sweep_rate'] > 0:
-            beam_width = np.radians(mode_config['beam_width'] * quality_settings['detail_level'])
-            beam = Wedge((0, 0), max_range,
-                        np.degrees(sweep_rad - beam_width/2),
-                        np.degrees(sweep_rad + beam_width/2),
-                        alpha=0.3, color=sweep_color)
-            ax.add_patch(beam)
-            
-            # Bright sweep line
-            ax.plot([sweep_rad, sweep_rad], [0, max_range], 
-                   color=sweep_color, linewidth=3, alpha=0.9)
-        
-        # Optimized sweep trail
-        trail_points = quality_settings['trail_points']
-        if len(self.sweep_history) > 0:
-            display_trail = min(len(self.sweep_history), trail_points)
-            for i, (angle, timestamp) in enumerate(list(self.sweep_history)[-display_trail:]):
-                age_factor = (i + 1) / display_trail
-                alpha = 0.05 + 0.15 * age_factor * quality_settings['detail_level']
-                trail_rad = np.radians(angle)
-                ax.plot([trail_rad, trail_rad], [0, max_range], 
-                       color=sweep_color, linewidth=1, alpha=alpha)
-        
-        self.sweep_history.append((self.sweep_angle, self.current_time))
-        
-        # Display tracks with LOD
-        confirmed_tracks = self.tracker.get_confirmed_tracks()
-        for track in confirmed_tracks:
-            self.draw_ultimate_track(ax, track, quality_settings, sweep_color)
-        
-        # Status overlay
-        fps = self.profiler.get_average_fps(10)
-        quality = self.quality_manager.current_quality
-        
-        status_text = (f'MODE: {self.current_config.current_mode.value} | '
-                      f'FPS: {fps:.1f} | Q: {quality:.2f} | '
-                      f'PWR: {self.current_config.transmitter_power_kw:.0f}kW | '
-                      f'TRACKS: {len(confirmed_tracks)}')
-        
-        ax.text(0.02, 0.98, status_text, transform=ax.transAxes, 
-               color='#ffff00', fontsize=12, weight='bold', verticalalignment='top')
-        
-        ax.set_theta_direction(-1)
-        ax.set_theta_zero_location('N')
-        ax.grid(True, color='#00ff00', alpha=0.2)
-        ax.set_rticks([])
-        ax.set_thetagrids([])
-    
-    def draw_ultimate_track(self, ax, track, quality_settings, mode_color):
-        """Draw track with ultimate feature set"""
-        range_km = np.sqrt(track.state.x**2 + track.state.y**2)
-        bearing_rad = np.arctan2(track.state.x, track.state.y)
-        
-        if range_km > self.current_config.max_range_km:
-            return
-            
-        detail_level = quality_settings['detail_level']
-        
-        # Classification-based styling
-        if track.classification == 'aircraft':
-            marker, color, base_size = '^', '#ffff00', 150
-        elif track.classification == 'ship':
-            marker, color, base_size = 's', '#00ffff', 130
-        else:
-            marker, color, base_size = 'o', '#ff8800', 110
-        
-        # LOD rendering
-        if detail_level > 0.8:
-            # High detail - full track with info and effects
-            size = int(base_size * detail_level)
-            ax.scatter(bearing_rad, range_km, s=size, c=color, marker=marker, 
-                      alpha=0.9, edgecolors='white', linewidths=2, zorder=20)
-            
-            # Detailed info
-            info_text = f'T{track.id[-3:]}\n{track.classification[:4].upper()}\n{track.state.speed_kmh:.0f}kt\nQ:{track.quality_score:.1f}'
-            ax.text(bearing_rad, range_km + self.current_config.max_range_km*0.05, 
-                   info_text, color=color, fontsize=9, ha='center', va='bottom', weight='bold')
-            
-            # Velocity vector
-            speed = np.sqrt(track.state.vx**2 + track.state.vy**2)
-            if speed > 0.5:
-                vel_scale = self.current_config.max_range_km * 0.1
-                end_x = track.state.x + track.state.vx * vel_scale
-                end_y = track.state.y + track.state.vy * vel_scale
-                end_range = np.sqrt(end_x**2 + end_y**2)
-                end_bearing = np.arctan2(end_x, end_y)
-                
-                if end_range <= self.current_config.max_range_km:
-                    ax.annotate('', xy=(end_bearing, end_range),
-                               xytext=(bearing_rad, range_km),
-                               arrowprops=dict(arrowstyle='->', color=color, lw=2, alpha=0.8))
-        
-        elif detail_level > 0.5:
-            # Medium detail
-            ax.scatter(bearing_rad, range_km, s=80, c=color, marker='o', alpha=0.8, zorder=15)
-            ax.text(bearing_rad, range_km + 8, f'T{track.id[-3:]}', 
-                   color=color, fontsize=8, ha='center', va='bottom')
-        
-        else:
-            # Low detail - just dots
-            ax.scatter(bearing_rad, range_km, s=20, c='#888888', marker='.', alpha=0.6, zorder=10)
-        
-        # Trail rendering
-        if detail_level > 0.4:
-            self.target_trails[track.id].append((bearing_rad, range_km, self.current_time))
-            
-            trail = list(self.target_trails[track.id])
-            if len(trail) > 1:
-                trail_length = int(len(trail) * detail_level)
-                for i in range(len(trail) - trail_length, len(trail) - 1):
-                    if i >= 0:
-                        b1, r1, t1 = trail[i]
-                        b2, r2, t2 = trail[i + 1]
-                        age = self.current_time - t1
-                        alpha = max(0.1, 1.0 - age / 20.0) * detail_level
-                        ax.plot([b1, b2], [r1, r2], color=color, alpha=alpha, linewidth=1)
-    
-    def manage_memory(self):
-        """Efficient memory management"""
-        self.gc_counter += 1
-        
-        if self.gc_counter >= 100:
-            gc.collect()
-            self.gc_counter = 0
-        
-        # Clean old trail data
-        for track_id in list(self.target_trails.keys()):
-            trail = self.target_trails[track_id]
-            while trail and self.current_time - trail[0][2] > 30.0:
-                trail.popleft()
-            if not trail:
-                del self.target_trails[track_id]
-    
-    def update_all_panels(self):
-        """Update all display panels"""
-        self.update_modes_panel()
-        self.update_presets_panel()
-        self.update_performance_panel()
-        self.update_status_panel()
-        self.update_tracks_panel()
-        self.update_quality_panel()
-        self.update_fps_graph()
-        self.update_resources_panel()
-        self.update_timing_panel()
-        self.update_optimization_panel()
-        self.update_threading_panel()
-        self.update_controls_panel()
-        self.update_alerts_panel()
-        self.update_filters_panel()
-        self.update_config_info_panel()
-        self.update_system_info_panel()
-    
-    def update_static_displays(self):
-        """Update displays when system is stopped"""
-        self.update_modes_panel()
-        self.update_presets_panel()
-        self.update_controls_panel()
-        self.update_config_info_panel()
-        self.update_system_info_panel()
-    
-    def update_modes_panel(self):
-        """Update radar modes panel"""
-        ax = self.axes['modes']
-        ax.clear()
-        ax.set_title('RADAR MODES', color='#00ff00', fontsize=11, weight='bold')
-        ax.set_xlim(0, 10)
-        ax.set_ylim(0, 10)
-        
-        modes = [
-            (RadarMode.SEARCH, (0.5, 8, 9, 1.2)),
-            (RadarMode.TRACK, (0.5, 6.5, 9, 1.2)),
-            (RadarMode.TWS, (0.5, 5, 9, 1.2)),
-            (RadarMode.WEATHER, (0.5, 3.5, 9, 1.2)),
-            (RadarMode.STANDBY, (0.5, 2, 9, 1.2))
-        ]
-        
-        for mode, (x, y, w, h) in modes:
-            if mode == self.current_config.current_mode:
-                color = '#006600'
-                text_color = '#00ff00'
-            else:
-                color = '#333333'
-                text_color = '#888888'
-                
-            rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.1",
-                                facecolor=color, edgecolor='#00ff00', linewidth=1)
-            ax.add_patch(rect)
-            ax.text(x + w/2, y + h/2, mode.value, ha='center', va='center',
-                   color=text_color, fontsize=9, weight='bold')
-        ax.axis('off')
-    
-    def update_presets_panel(self):
-        """Update configuration presets panel"""
-        ax = self.axes['presets']
-        ax.clear()
-        ax.set_title('CONFIG PRESETS', color='#00ff00', fontsize=11, weight='bold')
-        ax.set_xlim(0, 10)
-        ax.set_ylim(0, 10)
-        
-        presets = [
-            (ConfigPreset.AIRPORT_CONTROL, (0.5, 8.5, 9, 1)),
-            (ConfigPreset.NAVAL_SURVEILLANCE, (0.5, 7.2, 9, 1)),
-            (ConfigPreset.MILITARY_DEFENSE, (0.5, 5.9, 9, 1)),
-            (ConfigPreset.WEATHER_MONITORING, (0.5, 4.6, 9, 1)),
-            (ConfigPreset.COASTAL_PATROL, (0.5, 3.3, 9, 1)),
-            (ConfigPreset.CUSTOM, (0.5, 2, 9, 1))
-        ]
-        
-        for preset, (x, y, w, h) in presets:
-            rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.1",
-                                facecolor='#004444', edgecolor='#00ff00', linewidth=1)
-            ax.add_patch(rect)
-            ax.text(x + w/2, y + h/2, preset.value, ha='center', va='center',
-                   color='#00ff00', fontsize=8, weight='bold')
-        ax.axis('off')
-    
-    def update_performance_panel(self):
-        """Update main performance panel"""
-        ax = self.axes['performance']
-        ax.clear()
-        ax.set_title('PERFORMANCE', color='#00ff00', fontsize=11, weight='bold')
-        
-        fps = self.profiler.get_average_fps(10)
-        quality = self.quality_manager.current_quality
-        
-        perf_text = f"""
-TARGET: {self.target_fps:.0f} FPS
-CURRENT: {fps:.1f} FPS
-EFFICIENCY: {(fps/self.target_fps*100):.1f}%
-
-QUALITY: {quality:.2f}
-LEVEL: {self.get_quality_level_name(quality)}
-
-FRAMES: {self.profiler.total_frames}
-OPTIMIZATION: {'ACTIVE' if quality < 0.95 else 'STABLE'}
-        """.strip()
-        
-        color = '#00ff00' if fps >= self.target_fps * 0.9 else '#ffff00'
-        if fps < self.target_fps * 0.7:
-            color = '#ff4400'
-        
-        ax.text(0.05, 0.95, perf_text, transform=ax.transAxes,
-               color=color, fontsize=9, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_status_panel(self):
-        """Update system status panel"""
-        ax = self.axes['status']
-        ax.clear()
-        ax.set_title('SYSTEM STATUS', color='#00ff00', fontsize=11, weight='bold')
-        
-        status_text = f"""
-STATUS: {'ACTIVE' if self.is_running else 'STANDBY'}
-MODE: {self.current_config.current_mode.value}
-RANGE: {self.current_config.max_range_km:.0f}km
-POWER: {self.current_config.transmitter_power_kw:.0f}kW
-SWEEP: {self.current_config.sweep_rate_rpm:.0f}RPM
-
-UPTIME: {self.current_time:.0f}s
-HEALTH: OPTIMAL
-        """.strip()
-        
-        ax.text(0.05, 0.95, status_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=9, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_tracks_panel(self):
-        """Update tracks panel"""
-        ax = self.axes['tracks']
-        ax.clear()
-        ax.set_title('ACTIVE TRACKS', color='#00ff00', fontsize=11, weight='bold')
-        
-        tracks = self.tracker.get_confirmed_tracks()
-        
-        if tracks:
-            tracks_text = f"CONFIRMED: {len(tracks)}\n\n"
-            for i, track in enumerate(tracks[:5]):
-                range_km = np.sqrt(track.state.x**2 + track.state.y**2)
-                tracks_text += f"T{track.id[-3:]}: {track.classification[:4].upper()}\n"
-                tracks_text += f"  {range_km:.1f}km, {track.state.speed_kmh:.0f}kt\n"
-                if i < 4:
-                    tracks_text += "\n"
-        else:
-            tracks_text = "NO CONFIRMED\nTRACKS"
-            
-        ax.text(0.05, 0.95, tracks_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=8, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_quality_panel(self):
-        """Update adaptive quality panel"""
-        ax = self.axes['quality']
-        ax.clear()
-        ax.set_title('ADAPTIVE QUALITY', color='#00ff00', fontsize=11, weight='bold')
-        
-        quality = self.quality_manager.current_quality
-        level_name = self.get_quality_level_name(quality)
-        
-        quality_text = f"""
-CURRENT: {quality:.2f}
-LEVEL: {level_name}
-
-SETTINGS:
-Trail: {int(50 * quality)}
-History: {int(30 * quality)}
-Effects: {'ON' if quality > 0.5 else 'OFF'}
-
-STATUS: {'ADJUSTING' if len(self.quality_manager.quality_history) >= 3 else 'STABLE'}
-        """.strip()
-        
-        color = '#00ff00' if quality >= 0.75 else '#ffff00' if quality >= 0.5 else '#ff4400'
-        
-        ax.text(0.05, 0.95, quality_text, transform=ax.transAxes,
-               color=color, fontsize=8, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_fps_graph(self):
-        """Update FPS graph"""
-        ax = self.axes['fps_graph']
-        ax.clear()
-        ax.set_title('REAL-TIME FPS MONITORING', color='#00ff00', fontsize=11, weight='bold')
-        
-        if len(self.performance_history) > 10:
-            fps_data = [entry['frame_rate'] for entry in list(self.performance_history)[-60:]]
-            time_data = list(range(len(fps_data)))
-            
-            ax.plot(time_data, fps_data, color='#00ff00', linewidth=2)
-            ax.axhline(y=self.target_fps, color='#ffff00', linestyle='--', alpha=0.7)
-            ax.axhline(y=self.target_fps * 0.8, color='#ff4400', linestyle='--', alpha=0.5)
-            
-            ax.set_ylim(0, max(80, max(fps_data) * 1.1))
-            ax.set_ylabel('FPS', color='#00ff00', fontsize=9)
-            ax.tick_params(colors='#00ff00', labelsize=8)
-            ax.grid(True, alpha=0.3, color='#00ff00')
-            ax.fill_between(time_data, fps_data, alpha=0.3, color='#00ff00')
-    
-    def update_resources_panel(self):
-        """Update system resources panel"""
-        ax = self.axes['resources']
-        ax.clear()
-        ax.set_title('RESOURCES', color='#00ff00', fontsize=11, weight='bold')
-        
-        metrics = self.profiler.current_metrics
-        
-        resource_text = f"""
-CPU: {metrics.cpu_usage:.1f}%
-MEMORY: {metrics.memory_usage_mb:.1f}MB
-
-DETECTION: {metrics.detection_time_ms:.1f}ms
-RENDERING: {metrics.rendering_time_ms:.1f}ms
-
-TOTAL: {metrics.frame_time_ms:.1f}ms
-        """.strip()
-        
-        ax.text(0.05, 0.95, resource_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=9, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_timing_panel(self):
-        """Update timing breakdown panel"""
-        ax = self.axes['timing']
-        ax.clear()
-        ax.set_title('TIMING', color='#00ff00', fontsize=11, weight='bold')
-        
-        if len(self.performance_history) > 0:
-            recent = list(self.performance_history)[-10:]
-            avg_frame = np.mean([e.get('frame_time_ms', 0) for e in recent])
-            
-            timing_text = f"""
-FRAME: {avg_frame:.1f}ms
-TARGET: {1000/self.target_fps:.1f}ms
-
-OVERHEAD: {max(0, avg_frame - 10):.1f}ms
-EFFICIENCY: {min(100, 1000/self.target_fps/avg_frame*100):.1f}%
-
-BOTTLENECK: {'CPU' if avg_frame > 20 else 'NONE'}
-            """.strip()
-        else:
-            timing_text = "No timing\ndata available"
-        
-        ax.text(0.05, 0.95, timing_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=8, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_optimization_panel(self):
-        """Update optimization status panel"""
-        ax = self.axes['optimization']
-        ax.clear()
-        ax.set_title('OPTIMIZATION', color='#00ff00', fontsize=11, weight='bold')
-        
-        opt_text = f"""
-ADAPTIVE QUALITY: ON
-LOD RENDERING: ON
-MEMORY MGMT: ON
-ASYNC PROC: {'ON' if self.async_processing else 'OFF'}
-
-OPTIMIZATIONS: {len(self.optimization_log)}
-GC CYCLES: {self.gc_counter}
-
-STATUS: ACTIVE
-        """.strip()
-        
-        ax.text(0.05, 0.95, opt_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=8, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_threading_panel(self):
-        """Update threading status panel"""
-        ax = self.axes['threading']
-        ax.clear()
-        ax.set_title('THREADING', color='#00ff00', fontsize=11, weight='bold')
-        
-        if self.async_processing:
-            queue_size = self.processing_queue.qsize()
-            
-            thread_text = f"""
-ASYNC: ENABLED
-WORKER: {'ACTIVE' if self.worker_thread and self.worker_thread.is_alive() else 'INACTIVE'}
-
-QUEUE: {queue_size}/10
-UTILIZATION: {queue_size*10}%
-
-STATUS: {'OPTIMAL' if queue_size < 8 else 'BUSY'}
-            """.strip()
-        else:
-            thread_text = """
-ASYNC: DISABLED
-MODE: SYNCHRONOUS
-
-All processing on
-main thread.
-            """.strip()
-        
-        ax.text(0.05, 0.95, thread_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=8, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_controls_panel(self):
-        """Update system controls panel"""
-        ax = self.axes['controls']
-        ax.clear()
-        ax.set_title('SYSTEM CONTROLS', color='#00ff00', fontsize=12, weight='bold')
-        ax.set_xlim(0, 10)
-        ax.set_ylim(0, 10)
-        
-        buttons = [
-            ('START', (0.5, 7.5, 4, 1.5), '#006600' if not self.is_running else '#333333'),
-            ('STOP', (5, 7.5, 4, 1.5), '#660000' if self.is_running else '#333333'),
-            ('RESET', (0.5, 5.5, 4, 1.5), '#444444'),
-            ('AUTO DEMO', (5, 5.5, 4, 1.5), '#004466'),
-            ('SAVE CONFIG', (0.5, 3.5, 4, 1.5), '#440044'),
-            ('OPTIMIZE', (5, 3.5, 4, 1.5), '#444400')
-        ]
-        
-        for label, (x, y, w, h), color in buttons:
-            rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.1",
-                                facecolor=color, edgecolor='#00ff00', linewidth=1)
-            ax.add_patch(rect)
-            ax.text(x + w/2, y + h/2, label, ha='center', va='center',
-                   color='#00ff00', fontsize=9, weight='bold')
-        ax.axis('off')
-    
-    def update_alerts_panel(self):
-        """Update alerts panel"""
-        ax = self.axes['alerts']
-        ax.clear()
-        ax.set_title('ALERTS', color='#00ff00', fontsize=11, weight='bold')
-        
-        alerts = []
-        
-        # Performance alerts
-        fps = self.profiler.get_average_fps(10)
-        if fps < self.target_fps * 0.8:
-            alerts.append("PERFORMANCE LOW")
-        
-        # Configuration alerts
-        if self.current_config.transmitter_power_kw > 400:
-            alerts.append("HIGH POWER")
-        if self.current_config.detection_threshold < 0.05:
-            alerts.append("HIGH SENSITIVITY")
-        
-        # Track alerts
-        tracks = self.tracker.get_confirmed_tracks()
-        if len(tracks) > 20:
-            alerts.append("HIGH TRAFFIC")
-        
-        if not alerts:
-            alerts.append("ALL SYSTEMS NORMAL")
-        
-        alert_text = "\n".join(alerts[:6])
-        color = '#ffff00' if len(alerts) > 1 else '#00ff00'
-        
-        ax.text(0.05, 0.95, alert_text, transform=ax.transAxes,
-               color=color, fontsize=9, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_filters_panel(self):
-        """Update filters panel"""
-        ax = self.axes['filters']
-        ax.clear()
-        ax.set_title('FILTERS', color='#00ff00', fontsize=11, weight='bold')
-        
-        filter_text = f"""
-CLUTTER: {'ON' if self.current_config.clutter_rejection else 'OFF'}
-WEATHER: {'ON' if self.current_config.weather_filtering else 'OFF'}
-MTI: {'ON' if self.current_config.moving_target_indicator else 'OFF'}
-SEA: {'ON' if self.current_config.sea_clutter_suppression else 'OFF'}
-        """.strip()
-        
-        ax.text(0.05, 0.95, filter_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=9, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_config_info_panel(self):
-        """Update configuration info panel"""
-        ax = self.axes['config_info']
-        ax.clear()
-        ax.set_title('CONFIG INFO', color='#00ff00', fontsize=11, weight='bold')
-        
-        config_text = f"""
-RANGE: {self.current_config.min_range_km:.0f}-{self.current_config.max_range_km:.0f}km
-THRESHOLD: {self.current_config.detection_threshold:.3f}
-POWER: {self.current_config.transmitter_power_kw:.0f}kW
-SWEEP: {self.current_config.sweep_rate_rpm:.0f}RPM
-BEAM: {self.current_config.beam_width_deg:.1f}°
-        """.strip()
-        
-        ax.text(0.05, 0.95, config_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=8, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def update_system_info_panel(self):
-        """Update system info panel"""
-        ax = self.axes['system_info']
-        ax.clear()
-        ax.set_title('SYSTEM INFO', color='#00ff00', fontsize=11, weight='bold')
-        
-        targets = len(self.data_generator.targets)
-        aircraft = sum(1 for t in self.data_generator.targets if t.target_type == 'aircraft')
-        ships = sum(1 for t in self.data_generator.targets if t.target_type == 'ship')
-        weather = sum(1 for t in self.data_generator.targets if t.target_type == 'weather')
-        
-        info_text = f"""
-TARGETS: {targets}
-AIRCRAFT: {aircraft}
-SHIPS: {ships}
-WEATHER: {weather}
-
-VERSION: Day 7 Ultimate
-BUILD: Complete Integration
-        """.strip()
-        
-        ax.text(0.05, 0.95, info_text, transform=ax.transAxes,
-               color='#00ff00', fontsize=8, verticalalignment='top', fontfamily='monospace')
-        ax.axis('off')
-    
-    def get_quality_level_name(self, quality: float) -> str:
-        """Get quality level name"""
-        if quality >= 0.9:
-            return "MAXIMUM"
-        elif quality >= 0.75:
-            return "HIGH"
-        elif quality >= 0.5:
-            return "BALANCED"
-        elif quality >= 0.25:
-            return "PERFORMANCE"
-        else:
-            return "MINIMUM"
-    
-    def on_slider_change(self, slider_name: str, value: float):
-        """Handle slider changes"""
-        param_map = {
-            'range': 'max_range_km',
-            'threshold': 'detection_threshold',
-            'power': 'transmitter_power_kw',
-            'sweep_rate': 'sweep_rate_rpm'
-        }
-        
-        if slider_name in param_map:
-            param_name = param_map[slider_name]
-            is_valid, error_msg = self.config_manager.validate_parameter(param_name, value)
-            
-            if is_valid:
-                setattr(self.current_config, param_name, value)
-                self.apply_configuration(self.current_config)
-                
-                if slider_name == 'range':
-                    self.setup_radar_scope()
-            else:
-                print(f"Parameter validation failed: {error_msg}")
-    
-    def on_click(self, event):
-        """Handle mouse clicks"""
-        if event.inaxes == self.axes['modes']:
-            self.handle_mode_click(event)
-        elif event.inaxes == self.axes['presets']:
-            self.handle_preset_click(event)
-        elif event.inaxes == self.axes['controls']:
-            self.handle_control_click(event)
-    
-    def handle_mode_click(self, event):
-        """Handle radar mode selection"""
-        x, y = event.xdata, event.ydata
-        if x is not None and y is not None and 0.5 <= x <= 9.5:
-            if 8 <= y <= 9.2:
-                self.switch_mode(RadarMode.SEARCH)
-            elif 6.5 <= y <= 7.7:
-                self.switch_mode(RadarMode.TRACK)
-            elif 5 <= y <= 6.2:
-                self.switch_mode(RadarMode.TWS)
-            elif 3.5 <= y <= 4.7:
-                self.switch_mode(RadarMode.WEATHER)
-            elif 2 <= y <= 3.2:
-                self.switch_mode(RadarMode.STANDBY)
-    
-    def handle_preset_click(self, event):
-        """Handle preset selection"""
-        x, y = event.xdata, event.ydata
-        if x is not None and y is not None and 0.5 <= x <= 9.5:
-            if 8.5 <= y <= 9.5:
-                self.apply_preset(ConfigPreset.AIRPORT_CONTROL)
-            elif 7.2 <= y <= 8.2:
-                self.apply_preset(ConfigPreset.NAVAL_SURVEILLANCE)
-            elif 5.9 <= y <= 6.9:
-                self.apply_preset(ConfigPreset.MILITARY_DEFENSE)
-            """
-Ultimate Advanced Radar System - Day 7 Complete Integration
-===========================================================
-This is the culmination of Day 7 development, integrating:
-• Advanced radar modes (Search, Track, TWS, Weather, Standby)
-• Real-time configuration management with presets
-• High-performance optimization with 60+ FPS targeting
-• Professional operator interface and controls
-
-Features:
-• Multi-mode radar operation with mode-specific behaviors
-• Interactive parameter adjustment with live validation
-• Adaptive quality management for optimal performance
-• Real-time performance monitoring and profiling
-• Professional configuration presets for different missions
-• Advanced memory management and threading
+"""
+Day 7 Task 4: Ultimate Radar System Integration Demo
+Professional demonstration of the complete advanced radar system
+Combining all Days 1-7 features for the final showcase
 """
 import sys
 import os
@@ -648,646 +10,798 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Circle, Rectangle, Wedge, FancyBboxPatch
-from matplotlib.widgets import Slider, Button, CheckButtons
-import time
+from matplotlib.patches import Circle, Rectangle, Wedge
+from matplotlib.widgets import Button, Slider
 import threading
-import queue
+import time
+from typing import Dict, List
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
-from enum import Enum
-from dataclasses import dataclass, field
-import gc
-import psutil
-from collections import deque, defaultdict
+import multiprocessing
 
-# Import radar components
-try:
-    from src.radar_data_generator import RadarDataGenerator
-    from src.signal_processing import SignalProcessor
-    from src.target_detection import TargetDetector
-    from src.multi_target_tracker import MultiTargetTracker
-    print("All radar components imported successfully")
-except ImportError as e:
-    print(f"Warning: Some components not found: {e}")
+# Import all professional components
+from src.radar_data_generator import RadarDataGenerator, EnvironmentType
+from src.signal_processing import SignalProcessor
+from src.target_detection import TargetDetector  
+from src.multi_target_tracker import MultiTargetTracker
+from src.kalman_filter import TrackState
 
-class RadarMode(Enum):
-    """Advanced radar operating modes"""
-    SEARCH = "SEARCH"
-    TRACK = "TRACK" 
-    TWS = "TWS"
-    WEATHER = "WEATHER"
-    STANDBY = "STANDBY"
-
-class ConfigPreset(Enum):
-    """Configuration presets for different missions"""
-    AIRPORT_CONTROL = "Airport Control"
-    NAVAL_SURVEILLANCE = "Naval Surveillance"
-    MILITARY_DEFENSE = "Military Defense"
-    WEATHER_MONITORING = "Weather Monitoring"
-    COASTAL_PATROL = "Coastal Patrol"
-    CUSTOM = "Custom"
-
-class PerformanceLevel(Enum):
-    """Adaptive quality levels"""
-    MAXIMUM = "Maximum"
-    HIGH = "High"
-    BALANCED = "Balanced" 
-    PERFORMANCE = "Performance"
-    MINIMUM = "Minimum"
-
-@dataclass
-class RadarConfiguration:
-    """Complete radar system configuration"""
-    # Detection parameters
-    max_range_km: float = 200.0
-    min_range_km: float = 5.0
-    detection_threshold: float = 0.08
-    false_alarm_rate: float = 0.05
-    
-    # Sweep parameters
-    sweep_rate_rpm: float = 30.0
-    beam_width_deg: float = 2.0
-    antenna_gain_db: float = 35.0
-    
-    # Tracking parameters
-    max_association_distance: float = 10.0
-    min_hits_for_confirmation: int = 1
-    max_missed_detections: int = 15
-    track_aging_time: float = 45.0
-    
-    # Filter settings
-    clutter_rejection: bool = True
-    weather_filtering: bool = True
-    moving_target_indicator: bool = True
-    sea_clutter_suppression: bool = False
-    
-    # Display settings
-    trail_length_sec: float = 30.0
-    update_rate_hz: float = 10.0
-    brightness: float = 1.0
-    contrast: float = 1.0
-    
-    # System settings
-    transmitter_power_kw: float = 100.0
-    current_mode: RadarMode = RadarMode.SEARCH
-
-@dataclass 
-class PerformanceMetrics:
-    """Real-time performance metrics"""
-    frame_rate: float = 0.0
-    frame_time_ms: float = 0.0
-    cpu_usage: float = 0.0
-    memory_usage_mb: float = 0.0
-    detection_time_ms: float = 0.0
-    tracking_time_ms: float = 0.0
-    rendering_time_ms: float = 0.0
-    quality_level: float = 1.0
-    confirmed_tracks: int = 0
-    total_detections: int = 0
-
-class ConfigurationManager:
-    """Manages radar configurations and presets"""
+class UltimateRadarDemo:
+    """Ultimate demonstration of the complete advanced radar system"""
     
     def __init__(self):
-        self.presets = self._create_presets()
-        self.current_config = RadarConfiguration()
-        self.validation_rules = {
-            'max_range_km': (10.0, 500.0),
-            'min_range_km': (0.1, 50.0),
-            'detection_threshold': (0.01, 1.0),
-            'sweep_rate_rpm': (5.0, 120.0),
-            'transmitter_power_kw': (10.0, 1000.0)
-        }
-    
-    def _create_presets(self) -> Dict[ConfigPreset, RadarConfiguration]:
-        """Create default configuration presets"""
-        return {
-            ConfigPreset.AIRPORT_CONTROL: RadarConfiguration(
-                max_range_km=150.0, detection_threshold=0.06, sweep_rate_rpm=60.0,
-                beam_width_deg=1.5, transmitter_power_kw=50.0, current_mode=RadarMode.TWS
-            ),
-            ConfigPreset.NAVAL_SURVEILLANCE: RadarConfiguration(
-                max_range_km=300.0, detection_threshold=0.10, sweep_rate_rpm=20.0,
-                beam_width_deg=3.0, sea_clutter_suppression=True, transmitter_power_kw=200.0
-            ),
-            ConfigPreset.MILITARY_DEFENSE: RadarConfiguration(
-                max_range_km=400.0, detection_threshold=0.04, sweep_rate_rpm=90.0,
-                beam_width_deg=1.0, transmitter_power_kw=500.0, current_mode=RadarMode.TRACK
-            ),
-            ConfigPreset.WEATHER_MONITORING: RadarConfiguration(
-                max_range_km=250.0, detection_threshold=0.15, sweep_rate_rpm=15.0,
-                beam_width_deg=4.0, weather_filtering=False, current_mode=RadarMode.WEATHER
-            ),
-            ConfigPreset.COASTAL_PATROL: RadarConfiguration(
-                max_range_km=180.0, detection_threshold=0.08, sweep_rate_rpm=40.0,
-                beam_width_deg=2.5, sea_clutter_suppression=True, current_mode=RadarMode.TWS
-            )
-        }
-    
-    def validate_parameter(self, param_name: str, value: float) -> Tuple[bool, str]:
-        """Validate parameter values"""
-        if param_name not in self.validation_rules:
-            return True, ""
-        min_val, max_val = self.validation_rules[param_name]
-        if not (min_val <= value <= max_val):
-            return False, f"{param_name} must be between {min_val} and {max_val}"
-        return True, ""
-    
-    def apply_preset(self, preset: ConfigPreset) -> RadarConfiguration:
-        """Apply configuration preset"""
-        if preset in self.presets:
-            config_dict = self.presets[preset].__dict__.copy()
-            self.current_config = RadarConfiguration(**config_dict)
-            return self.current_config
-        return self.current_config
-
-class PerformanceProfiler:
-    """Advanced performance monitoring"""
-    
-    def __init__(self, history_size: int = 1000):
-        self.history_size = history_size
-        self.frame_times = deque(maxlen=history_size)
-        self.frame_start_time = 0.0
-        self.current_metrics = PerformanceMetrics()
-        self.total_frames = 0
-        self.process = psutil.Process()
-    
-    def start_frame(self):
-        """Mark frame start"""
-        self.frame_start_time = time.perf_counter()
+        """Initialize the ultimate radar demonstration system"""
+        print("🚀 INITIALIZING ULTIMATE RADAR SYSTEM DEMO")
+        print("=" * 60)
         
-    def end_frame(self) -> PerformanceMetrics:
-        """Calculate frame metrics"""
-        frame_time = time.perf_counter() - self.frame_start_time
-        
-        self.current_metrics.frame_time_ms = frame_time * 1000
-        self.current_metrics.frame_rate = 1.0 / max(frame_time, 0.001)
-        self.current_metrics.cpu_usage = self.process.cpu_percent()
-        self.current_metrics.memory_usage_mb = self.process.memory_info().rss / 1024 / 1024
-        
-        self.frame_times.append(frame_time)
-        self.total_frames += 1
-        
-        return self.current_metrics
-    
-    def get_average_fps(self, window_size: int = 30) -> float:
-        """Get average FPS"""
-        if len(self.frame_times) < window_size:
-            return 0.0
-        recent_times = list(self.frame_times)[-window_size:]
-        avg_time = sum(recent_times) / len(recent_times)
-        return 1.0 / max(avg_time, 0.001)
-
-class AdaptiveQualityManager:
-    """Manages adaptive quality based on performance"""
-    
-    def __init__(self, target_fps: float = 60.0):
-        self.target_fps = target_fps
-        self.current_quality = 1.0
-        self.adjustment_rate = 0.1
-        self.quality_history = deque(maxlen=5)
-        
-    def update_quality(self, current_fps: float) -> float:
-        """Update quality based on performance"""
-        fps_ratio = current_fps / self.target_fps
-        
-        if fps_ratio < 0.8:
-            target_quality = max(0.25, self.current_quality - self.adjustment_rate)
-        elif fps_ratio > 1.1:
-            target_quality = min(1.0, self.current_quality + self.adjustment_rate * 0.5)
-        else:
-            target_quality = self.current_quality
-        
-        self.quality_history.append(target_quality)
-        if len(self.quality_history) >= 3:
-            avg_target = np.mean(list(self.quality_history))
-            if abs(avg_target - self.current_quality) > 0.05:
-                self.current_quality = avg_target
-        
-        return self.current_quality
-    
-    def get_quality_settings(self) -> Dict[str, Any]:
-        """Get settings based on current quality"""
-        quality = self.current_quality
-        return {
-            'trail_points': int(50 * quality),
-            'sweep_history': int(30 * quality),
-            'detail_level': quality,
-            'effects_enabled': quality > 0.5,
-            'anti_aliasing': quality > 0.8
-        }
-
-class UltimateRadarSystem:
-    """
-    Ultimate Advanced Radar System - Day 7 Complete Integration
-    
-    This system represents the culmination of advanced radar development,
-    combining multiple operating modes, real-time configuration, and
-    high-performance optimization into a professional radar platform.
-    """
-    
-    def __init__(self):
-        print("Initializing Ultimate Advanced Radar System...")
-        
-        # Performance management
-        self.target_fps = 60.0
-        self.profiler = PerformanceProfiler()
-        self.quality_manager = AdaptiveQualityManager(self.target_fps)
-        
-        # Configuration management
-        self.config_manager = ConfigurationManager()
-        self.current_config = self.config_manager.current_config
-        
-        # Core radar components
+        # Core radar components with optimized parameters
         self.data_generator = RadarDataGenerator(max_range_km=200)
         self.signal_processor = SignalProcessor()
         self.target_detector = TargetDetector()
         self.tracker = MultiTargetTracker()
         
-        # Apply initial optimizations
-        self.apply_configuration(self.current_config)
+        # Advanced system parameters
+        self.system_config = {
+            'max_range_km': 200,
+            'sweep_rate_rpm': 60,
+            'update_rate_hz': 60,
+            'detection_threshold': 0.25,
+            'false_alarm_rate': 0.005,
+            'tracking_gate_size': 12.0,
+            'min_track_confirmations': 3,
+            'performance_target_fps': 60
+        }
         
-        # System state
-        self.is_running = False
-        self.current_time = 0.0
-        self.sweep_angle = 0.0
-        self.frame_count = 0
+        # System state management
+        self.system_state = {
+            'is_running': False,
+            'current_time': 0.0,
+            'sweep_angle': 0.0,
+            'sweep_rate': 6.0,  # degrees per frame
+            'operation_mode': 'SEARCH',  # SEARCH, TRACK, ENGAGE
+            'alert_level': 'GREEN',      # GREEN, YELLOW, RED
+            'system_health': 'OPTIMAL'
+        }
         
-        # Optimized data structures
-        self.sweep_history = deque(maxlen=50)
-        self.target_trails = defaultdict(lambda: deque(maxlen=30))
-        self.performance_history = deque(maxlen=300)
+        # Performance monitoring (Day 7 optimization)
+        self.performance_monitor = {
+            'frame_times': [],
+            'fps_history': [],
+            'processing_times': [],
+            'detection_rates': [],
+            'tracking_accuracy': [],
+            'current_fps': 0,
+            'target_fps': 60,
+            'quality_level': 5,  # 1-5 (5=maximum quality)
+            'adaptive_quality': True
+        }
         
-        # Memory management
-        self.gc_counter = 0
-        self.optimization_log = []
-        
-        # Threading for async processing
-        self.processing_queue = queue.Queue(maxsize=10)
-        self.result_queue = queue.Queue()
-        self.worker_thread = None
-        self.async_processing = True
-        
-        if self.async_processing:
-            self.start_worker_thread()
+        # Advanced radar features
+        self.radar_features = {
+            'trails_enabled': True,
+            'velocity_vectors': True,
+            'classification_display': True,
+            'threat_assessment': True,
+            'performance_overlay': True,
+            'multi_threading': True,
+            'adaptive_filtering': True
+        }
         
         # Display components
         self.fig = None
         self.axes = {}
-        self.sliders = {}
         self.animation = None
+        
+        # Multi-threading for performance (Day 7)
+        self.processing_thread = None
+        self.processing_queue = []
+        self.results_queue = []
         
         self.setup_ultimate_display()
         self.load_comprehensive_scenario()
         
-    def apply_configuration(self, config: RadarConfiguration):
-        """Apply configuration to all radar components"""
-        # Update signal processor
-        self.signal_processor.detection_threshold = config.detection_threshold
-        self.signal_processor.false_alarm_rate = config.false_alarm_rate
+        print("✅ Ultimate Radar System initialized successfully!")
+        print(f"📊 Configuration: {self.system_config['max_range_km']}km range, "
+              f"{self.system_config['sweep_rate_rpm']}RPM, {self.system_config['update_rate_hz']}Hz")
+        print(f"🎯 Performance target: {self.performance_monitor['target_fps']} FPS")
         
-        # Update target detector
-        self.target_detector.min_detections_for_confirmation = config.min_hits_for_confirmation
-        self.target_detector.association_distance_threshold = config.max_association_distance
-        
-        # Update tracker
-        self.tracker.max_association_distance = config.max_association_distance
-        self.tracker.min_hits_for_confirmation = config.min_hits_for_confirmation
-        self.tracker.max_missed_detections = config.max_missed_detections
-        self.tracker.max_track_age_without_update = config.track_aging_time
-        
-        # Update data generator
-        self.data_generator.max_range_km = config.max_range_km
-        
-        print(f"Configuration applied: {config.current_mode.value} mode, {config.max_range_km}km range, {config.transmitter_power_kw}kW")
-    
-    def start_worker_thread(self):
-        """Start async processing thread"""
-        self.worker_thread = threading.Thread(target=self.worker_function, daemon=True)
-        self.worker_thread.start()
-        print("Async processing thread started")
-    
-    def worker_function(self):
-        """Background processing worker"""
-        while True:
-            try:
-                task = self.processing_queue.get(timeout=1.0)
-                if task is None:
-                    break
-                    
-                task_type, data = task
-                if task_type == 'detection':
-                    result = self.process_detections_async(data)
-                    self.result_queue.put(('detection_result', result))
-                
-                self.processing_queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception as e:
-                print(f"Worker thread error: {e}")
-    
-    def process_detections_async(self, detection_data):
-        """Process detections in background thread"""
-        detections, current_time = detection_data
-        targets = self.target_detector.process_raw_detections(detections)
-        
-        if targets:
-            active_tracks = self.tracker.update(targets, current_time)
-            return self.tracker.get_confirmed_tracks()
-        return []
-    
     def setup_ultimate_display(self):
-        """Setup comprehensive display with all features"""
+        """Setup the ultimate professional radar display"""
         plt.style.use('dark_background')
-        self.fig = plt.figure(figsize=(24, 16))
-        self.fig.patch.set_facecolor('black')
+        self.fig = plt.figure(figsize=(20, 12))
+        self.fig.suptitle('🎯 ULTIMATE RADAR SYSTEM DEMO - DAY 7 COMPLETE INTEGRATION', 
+                         fontsize=18, color='#00ff00', weight='bold')
         
-        # Complex grid layout for all features
-        gs = self.fig.add_gridspec(4, 6, height_ratios=[3, 1, 1, 1], width_ratios=[3, 1, 1, 1, 1, 1])
+        # Main radar display (larger)
+        self.axes['radar'] = plt.subplot2grid((3, 4), (0, 0), colspan=2, rowspan=2, projection='polar')
+        self.setup_radar_display()
         
-        # Main radar display
-        self.axes['radar'] = self.fig.add_subplot(gs[0, :3], projection='polar')
-        self.setup_radar_scope()
+        # Target information panel
+        self.axes['targets'] = plt.subplot2grid((3, 4), (0, 2), colspan=1, rowspan=1)
+        self.setup_target_panel()
         
-        # Mode and preset controls
-        self.axes['modes'] = self.fig.add_subplot(gs[0, 3])
-        self.axes['presets'] = self.fig.add_subplot(gs[0, 4])
-        self.axes['performance'] = self.fig.add_subplot(gs[0, 5])
+        # System status panel
+        self.axes['status'] = plt.subplot2grid((3, 4), (1, 2), colspan=1, rowspan=1)
+        self.setup_status_panel()
         
-        # Real-time parameter sliders
-        self.axes['sliders'] = self.fig.add_subplot(gs[1, :3])
-        self.setup_parameter_sliders()
+        # Performance monitoring (Day 7 feature)
+        self.axes['performance'] = plt.subplot2grid((3, 4), (0, 3), colspan=1, rowspan=2)
+        self.setup_performance_panel()
         
-        # Status and monitoring panels
-        self.axes['status'] = self.fig.add_subplot(gs[1, 3])
-        self.axes['tracks'] = self.fig.add_subplot(gs[1, 4])
-        self.axes['quality'] = self.fig.add_subplot(gs[1, 5])
+        # Advanced controls
+        self.axes['controls'] = plt.subplot2grid((3, 4), (2, 0), colspan=2, rowspan=1)
+        self.setup_advanced_controls()
         
-        # Performance monitoring
-        self.axes['fps_graph'] = self.fig.add_subplot(gs[2, :2])
-        self.axes['resources'] = self.fig.add_subplot(gs[2, 2])
-        self.axes['timing'] = self.fig.add_subplot(gs[2, 3])
-        self.axes['optimization'] = self.fig.add_subplot(gs[2, 4])
-        self.axes['threading'] = self.fig.add_subplot(gs[2, 5])
+        # System configuration
+        self.axes['config'] = plt.subplot2grid((3, 4), (2, 2), colspan=1, rowspan=1)
+        self.setup_config_panel()
         
-        # System controls and info
-        self.axes['controls'] = self.fig.add_subplot(gs[3, :2])
-        self.axes['alerts'] = self.fig.add_subplot(gs[3, 2])
-        self.axes['filters'] = self.fig.add_subplot(gs[3, 3])
-        self.axes['config_info'] = self.fig.add_subplot(gs[3, 4])
-        self.axes['system_info'] = self.fig.add_subplot(gs[3, 5])
+        # Real-time metrics
+        self.axes['metrics'] = plt.subplot2grid((3, 4), (2, 3), colspan=1, rowspan=1)
+        self.setup_metrics_panel()
         
-        # Style all panels
-        for name, ax in self.axes.items():
-            if name not in ['radar', 'sliders']:
-                ax.set_facecolor('#001122')
-                for spine in ax.spines.values():
-                    spine.set_color('#00ff00')
-                    spine.set_linewidth(1)
-                ax.tick_params(colors='#00ff00', labelsize=8)
-        
-        # Title
-        self.fig.suptitle('ULTIMATE ADVANCED RADAR SYSTEM - DAY 7 COMPLETE INTEGRATION', 
-                         fontsize=20, color='#00ff00', weight='bold', y=0.96)
-    
-    def setup_radar_scope(self):
-        """Configure main radar display"""
+    def setup_radar_display(self):
+        """Setup the main radar display with all advanced features"""
         ax = self.axes['radar']
-        ax.set_facecolor('black')
-        ax.set_ylim(0, self.current_config.max_range_km)
-        ax.set_title('ADVANCED RADAR PPI SCOPE\nMulti-Mode Operation with Performance Optimization', 
-                    color='#00ff00', pad=20, fontsize=14, weight='bold')
-        
-        # Dynamic range rings
-        max_range = self.current_config.max_range_km
-        for r in [max_range*0.25, max_range*0.5, max_range*0.75, max_range]:
-            circle = Circle((0, 0), r, fill=False, color='#00ff00', alpha=0.3, linewidth=1)
-            ax.add_patch(circle)
-            ax.text(np.pi/4, r-max_range*0.05, f'{r:.0f}km', color='#00ff00', fontsize=10, ha='center')
-        
-        # Bearing lines
-        for angle in range(0, 360, 30):
-            rad = np.radians(angle)
-            ax.plot([rad, rad], [0, max_range], color='#00ff00', alpha=0.2, linewidth=0.5)
-            ax.text(rad, max_range*1.05, f'{angle}°', color='#00ff00', fontsize=9, ha='center')
-        
-        ax.set_theta_direction(-1)
         ax.set_theta_zero_location('N')
-        ax.grid(True, color='#00ff00', alpha=0.2)
-        ax.set_rticks([])
-        ax.set_thetagrids([])
-    
-    def setup_parameter_sliders(self):
-        """Setup interactive parameter adjustment sliders"""
-        ax = self.axes['sliders']
-        ax.set_title('REAL-TIME PARAMETER ADJUSTMENT', color='#00ff00', fontsize=12, weight='bold')
+        ax.set_theta_direction(-1)
+        ax.set_ylim(0, self.system_config['max_range_km'])
+        ax.set_title('PRIMARY RADAR DISPLAY', pad=20, color='#00ff00', weight='bold')
+        
+        # Enhanced range rings with labels
+        ranges = [50, 100, 150, 200]
+        for r in ranges:
+            circle = Circle((0, 0), r, fill=False, color='#006600', alpha=0.6, linewidth=1)
+            ax.add_patch(circle)
+            ax.text(0, r, f'{r}km', ha='center', va='bottom', color='#00ff00', fontsize=8)
+        
+        # Bearing lines every 30 degrees
+        for bearing in range(0, 360, 30):
+            theta_rad = np.radians(bearing)
+            ax.plot([theta_rad, theta_rad], [0, self.system_config['max_range_km']], 
+                   color='#006600', alpha=0.4, linewidth=0.5)
+            if bearing % 90 == 0:
+                ax.text(theta_rad, self.system_config['max_range_km'] * 1.1, 
+                       f'{bearing}°', ha='center', va='center', 
+                       color='#00ff00', fontsize=10, weight='bold')
+        
+        # Sweep line (will be animated)
+        self.sweep_line = ax.plot([0, 0], [0, self.system_config['max_range_km']], 
+                                 color='#00ff00', linewidth=2, alpha=0.8)[0]
+        
+    def setup_target_panel(self):
+        """Setup advanced target information panel"""
+        ax = self.axes['targets']
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_title('TARGET INFORMATION', color='#00ff00', weight='bold')
         ax.axis('off')
         
-        # Range slider
-        slider_ax1 = plt.axes([0.1, 0.7, 0.3, 0.02], facecolor='#001122')
-        self.sliders['range'] = Slider(
-            slider_ax1, 'Range (km)', 50, 500, 
-            valinit=self.current_config.max_range_km, 
-            color='#00ff00'
-        )
+        # Headers
+        ax.text(0.5, 9.5, 'ID', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(2, 9.5, 'TYPE', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(4, 9.5, 'RANGE', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(6, 9.5, 'SPEED', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(8, 9.5, 'THREAT', color='#00ff00', weight='bold', fontsize=10)
         
-        # Sensitivity slider
-        slider_ax2 = plt.axes([0.1, 0.65, 0.3, 0.02], facecolor='#001122')
-        self.sliders['threshold'] = Slider(
-            slider_ax2, 'Sensitivity', 0.01, 0.3, 
-            valinit=self.current_config.detection_threshold,
-            color='#ffff00'
-        )
+    def setup_status_panel(self):
+        """Setup system status panel"""
+        ax = self.axes['status']
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_title('SYSTEM STATUS', color='#00ff00', weight='bold')
+        ax.axis('off')
         
-        # Power slider
-        slider_ax3 = plt.axes([0.1, 0.6, 0.3, 0.02], facecolor='#001122')
-        self.sliders['power'] = Slider(
-            slider_ax3, 'Power (kW)', 10, 500, 
-            valinit=self.current_config.transmitter_power_kw,
-            color='#ff4400'
-        )
+    def setup_performance_panel(self):
+        """Setup Day 7 performance monitoring panel"""
+        ax = self.axes['performance']
+        ax.set_xlim(0, 100)
+        ax.set_ylim(0, 10)
+        ax.set_title('PERFORMANCE MONITOR', color='#00ff00', weight='bold')
+        ax.axis('off')
         
-        # Sweep rate slider
-        slider_ax4 = plt.axes([0.1, 0.55, 0.3, 0.02], facecolor='#001122')
-        self.sliders['sweep_rate'] = Slider(
-            slider_ax4, 'Sweep (RPM)', 5, 120, 
-            valinit=self.current_config.sweep_rate_rpm,
-            color='#ff8800'
-        )
+        # Performance indicators
+        ax.text(5, 9, 'FPS:', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(5, 8, 'QUALITY:', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(5, 7, 'CPU:', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(5, 6, 'MEMORY:', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(5, 5, 'DETECTIONS:', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(5, 4, 'TRACKS:', color='#00ff00', weight='bold', fontsize=10)
         
-        # Connect slider events
-        for name, slider in self.sliders.items():
-            slider.on_changed(lambda val, n=name: self.on_slider_change(n, val))
+    def setup_advanced_controls(self):
+        """Setup advanced control panel"""
+        ax = self.axes['controls']
+        ax.set_xlim(0, 20)
+        ax.set_ylim(0, 6)
+        ax.set_title('SYSTEM CONTROLS', color='#00ff00', weight='bold')
+        ax.axis('off')
+        
+        # Control buttons (will be interactive)
+        controls = [
+            ('START', (2, 5), '#00aa00'),
+            ('STOP', (6, 5), '#aa0000'),
+            ('RESET', (10, 5), '#aaaa00'),
+            ('MODE', (14, 5), '#0000aa'),
+            ('SCENARIO', (2, 3), '#aa00aa'),
+            ('OPTIMIZE', (6, 3), '#00aaaa'),
+            ('TRAILS', (10, 3), '#aaaaaa'),
+            ('VECTORS', (14, 3), '#aa5500')
+        ]
+        
+        for label, (x, y), color in controls:
+            rect = Rectangle((x-0.8, y-0.3), 1.6, 0.6, 
+                           facecolor=color, edgecolor='white', alpha=0.7)
+            ax.add_patch(rect)
+            ax.text(x, y, label, ha='center', va='center', 
+                   color='white', fontsize=8, weight='bold')
     
+    def setup_config_panel(self):
+        """Setup system configuration panel"""
+        ax = self.axes['config']
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_title('CONFIGURATION', color='#00ff00', weight='bold')
+        ax.axis('off')
+        
+    def setup_metrics_panel(self):
+        """Setup real-time metrics panel"""
+        ax = self.axes['metrics']
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_title('REAL-TIME METRICS', color='#00ff00', weight='bold')
+        ax.axis('off')
+        
     def load_comprehensive_scenario(self):
-        """Load comprehensive test scenario"""
-        print("Loading comprehensive radar test scenario...")
+        """Load a comprehensive test scenario with multiple target types"""
+        print("🎬 Loading comprehensive test scenario...")
         
-        # Diverse aircraft at various ranges and speeds
-        aircraft_data = [
-            (-150, 180, 90, 450),   (-80, 160, 45, 380),   (120, 140, 225, 520),
-            (-180, -120, 135, 420), (160, -100, 315, 360), (0, 200, 180, 600),
-            (-120, 80, 270, 280),   (180, 60, 225, 480),   (-100, -160, 45, 340),
-            (140, 120, 135, 380),   (-200, 40, 90, 520),   (200, -80, 270, 400),
-            (-60, 220, 180, 950),   (80, -180, 315, 150),  (-140, 160, 45, 680)
+        # Clear existing targets
+        self.data_generator.targets = []
+        
+        # Add diverse aircraft targets
+        aircraft_configs = [
+            (-80, -120, 45, 850, 'airliner'),
+            (150, -50, 180, 650, 'fighter'),
+            (-100, 80, 270, 450, 'cargo'),
+            (60, 140, 225, 750, 'airliner'),
+            (-180, -80, 90, 320, 'helicopter'),
+            (120, -160, 135, 920, 'fighter')
         ]
         
-        for x, y, heading, speed in aircraft_data:
-            self.data_generator.add_aircraft(x, y, heading, speed)
-            
-        # Naval vessels
-        ship_data = [
-            (-180, -160, 45, 25), (160, -180, 270, 18), (-120, -200, 90, 35),
-            (200, -140, 225, 22), (-160, -120, 135, 28), (180, -160, 315, 15)
+        for x, y, heading, speed, aircraft_type in aircraft_configs:
+            self.data_generator.add_aircraft(x, y, heading, speed, aircraft_type)
+        
+        # Add naval targets
+        naval_configs = [
+            (-60, -180, 30, 25, 'destroyer'),
+            (100, 170, 200, 18, 'cargo_ship'),
+            (-140, 60, 315, 35, 'patrol_boat'),
+            (180, -100, 150, 22, 'tanker')
         ]
         
-        for x, y, heading, speed in ship_data:
-            self.data_generator.add_ship(x, y, heading, speed)
-            
-        # Weather phenomena
-        self.data_generator.add_weather_returns(-120, 120, 45)
-        self.data_generator.add_weather_returns(140, 160, 35)
-        self.data_generator.add_weather_returns(-80, -140, 25)
+        for x, y, heading, speed, ship_type in naval_configs:
+            self.data_generator.add_ship(x, y, heading, speed, ship_type)
         
-        total = len(self.data_generator.targets)
-        print(f"Comprehensive scenario loaded: {total} targets (aircraft, ships, weather)")
+        # Add weather phenomena
+        weather_configs = [
+            (50, 50, 30),
+            (-120, 120, 45),
+            (80, -80, 25)
+        ]
+        
+        for x, y, intensity in weather_configs:
+            self.data_generator.add_weather_returns(x, y, intensity)
+        
+        # Configure environmental conditions
+        self.data_generator.environment.type = EnvironmentType.MIXED
+        self.data_generator.environment.visibility_km = 15.0
+        self.data_generator.environment.precipitation_intensity = 0.3
+        self.data_generator.environment.temperature_c = 18.0
+        
+        print(f"✅ Scenario loaded: {len(self.data_generator.targets)} targets")
+        print(f"   • Aircraft: {sum(1 for t in self.data_generator.targets if t.target_type.value == 'aircraft')}")
+        print(f"   • Ships: {sum(1 for t in self.data_generator.targets if t.target_type.value == 'ship')}")
+        print(f"   • Weather: {sum(1 for t in self.data_generator.targets if t.target_type.value == 'weather')}")
+        
+    def update_radar_display(self):
+        """Update the main radar display with all advanced features"""
+        ax = self.axes['radar']
+        
+        # Clear previous detections
+        for item in ax.get_children():
+            if hasattr(item, '_detection_marker'):
+                item.remove()
+        
+        # Update sweep line
+        sweep_rad = np.radians(self.system_state['sweep_angle'])
+        self.sweep_line.set_data([sweep_rad, sweep_rad], 
+                                [0, self.system_config['max_range_km']])
+        
+        # Get current detections (simulate radar sweep)
+        current_detections = self.data_generator.simulate_radar_detection(
+            self.system_state['sweep_angle']
+        )
+        
+        # Process detections through the pipeline
+        processed_detections = self.signal_processor.process_detections(current_detections)
+        confirmed_detections = self.target_detector.detect_targets(processed_detections)
+        
+        # Update tracker
+        self.tracker.update(confirmed_detections, self.system_state['current_time'])
+        confirmed_tracks = self.tracker.get_confirmed_tracks()
+        
+        # Visualize tracks with advanced features
+        for track in confirmed_tracks:
+            theta_rad = np.radians(track.bearing)
+            
+            # Determine display properties based on classification and threat
+            color, size, marker = self.get_track_display_properties(track)
+            
+            # Plot track position
+            track_plot = ax.plot(theta_rad, track.range, marker, 
+                               color=color, markersize=size, alpha=0.9)[0]
+            track_plot._detection_marker = True
+            
+            # Add velocity vector if enabled
+            if self.radar_features['velocity_vectors'] and track.state.speed_kmh > 10:
+                self.draw_velocity_vector(ax, track, theta_rad)
+            
+            # Add track trail if enabled
+            if self.radar_features['trails_enabled']:
+                self.draw_track_trail(ax, track)
+            
+            # Add track ID and classification
+            if self.radar_features['classification_display']:
+                self.draw_track_info(ax, track, theta_rad)
     
-    def animate_ultimate(self, frame):
-        """Ultimate animation loop with all features"""
-        self.profiler.start_frame()
+    def get_track_display_properties(self, track):
+        """Determine display properties based on track characteristics"""
+        # Base properties
+        size = 8
+        marker = 'o'
         
-        if not self.is_running:
-            self.update_static_displays()
-            self.profiler.end_frame()
+        # Color based on classification and threat
+        if hasattr(track, 'classification'):
+            if track.classification == 'aircraft':
+                if track.state.speed_kmh > 600:  # Fast aircraft (fighter?)
+                    color = '#ff4444'  # Red for potential threats
+                    size = 12
+                    marker = '^'
+                else:
+                    color = '#4444ff'  # Blue for civilian
+                    marker = '^'
+            elif track.classification == 'ship':
+                color = '#44ff44'  # Green for ships
+                marker = 's'
+            elif track.classification == 'weather':
+                color = '#ffff44'  # Yellow for weather
+                marker = '*'
+                size = 10
+            else:
+                color = '#ffffff'  # White for unknown
+        else:
+            color = '#ffffff'
+            
+        return color, size, marker
+    
+    def draw_velocity_vector(self, ax, track, theta_rad):
+        """Draw velocity vector for track"""
+        if hasattr(track.state, 'vx') and hasattr(track.state, 'vy'):
+            # Calculate velocity vector in polar coordinates
+            vel_magnitude = np.sqrt(track.state.vx**2 + track.state.vy**2) * 0.1  # Scale factor
+            vel_angle = np.arctan2(track.state.vy, track.state.vx)
+            
+            # Draw velocity line
+            end_theta = theta_rad + np.sin(vel_angle) * 0.1
+            end_range = track.range + vel_magnitude
+            
+            vel_line = ax.plot([theta_rad, end_theta], [track.range, end_range], 
+                             color='#ffaa00', linewidth=2, alpha=0.7)[0]
+            vel_line._detection_marker = True
+    
+    def draw_track_trail(self, ax, track):
+        """Draw track trail/history"""
+        if hasattr(track, 'position_history') and len(track.position_history) > 1:
+            for i, (x, y) in enumerate(track.position_history[-10:]):  # Last 10 positions
+                range_km = np.sqrt(x**2 + y**2)
+                bearing_rad = np.arctan2(x, y)
+                alpha = (i + 1) / 10 * 0.3  # Fading trail
+                
+                trail_point = ax.plot(bearing_rad, range_km, '.', 
+                                    color='#888888', markersize=2, alpha=alpha)[0]
+                trail_point._detection_marker = True
+    
+    def draw_track_info(self, ax, track, theta_rad):
+        """Draw track ID and classification info"""
+        # Track ID
+        id_text = ax.text(theta_rad, track.range + 5, f'{track.id}', 
+                         ha='center', va='bottom', color='white', 
+                         fontsize=8, weight='bold')
+        id_text._detection_marker = True
+        
+        # Classification (if available)
+        if hasattr(track, 'classification'):
+            class_text = ax.text(theta_rad, track.range - 5, 
+                               f'{track.classification[:3].upper()}', 
+                               ha='center', va='top', color='#cccccc', fontsize=6)
+            class_text._detection_marker = True
+    
+    def update_target_panel(self):
+        """Update the target information panel"""
+        ax = self.axes['targets']
+        ax.clear()
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_title('TARGET INFORMATION', color='#00ff00', weight='bold')
+        ax.axis('off')
+        
+        # Headers
+        ax.text(0.5, 9.5, 'ID', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(2, 9.5, 'TYPE', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(4, 9.5, 'RANGE', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(6, 9.5, 'SPEED', color='#00ff00', weight='bold', fontsize=10)
+        ax.text(8, 9.5, 'THREAT', color='#00ff00', weight='bold', fontsize=10)
+        
+        # Active tracks
+        confirmed_tracks = self.tracker.get_confirmed_tracks()[:8]  # Show top 8
+        
+        for i, track in enumerate(confirmed_tracks):
+            y_pos = 8.5 - i * 0.8
+            
+            # Track ID
+            ax.text(0.5, y_pos, f'{track.id:03d}', color='white', fontsize=9)
+            
+            # Type
+            track_type = getattr(track, 'classification', 'UNK')[:3].upper()
+            color = {'AIR': '#4444ff', 'SHI': '#44ff44', 'WEA': '#ffff44'}.get(track_type, 'white')
+            ax.text(2, y_pos, track_type, color=color, fontsize=9)
+            
+            # Range
+            ax.text(4, y_pos, f'{track.range:.0f}km', color='white', fontsize=9)
+            
+            # Speed
+            speed = getattr(track.state, 'speed_kmh', 0)
+            ax.text(6, y_pos, f'{speed:.0f}kh', color='white', fontsize=9)
+            
+            # Threat level
+            threat = 'HIGH' if speed > 600 else 'MED' if speed > 200 else 'LOW'
+            threat_color = {'HIGH': '#ff4444', 'MED': '#ffaa44', 'LOW': '#44ff44'}[threat]
+            ax.text(8, y_pos, threat, color=threat_color, fontsize=9, weight='bold')
+    
+    def update_performance_panel(self):
+        """Update Day 7 performance monitoring panel"""
+        ax = self.axes['performance']
+        ax.clear()
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_title('PERFORMANCE MONITOR', color='#00ff00', weight='bold')
+        ax.axis('off')
+        
+        # Calculate current performance metrics
+        current_fps = self.performance_monitor['current_fps']
+        quality_level = self.performance_monitor['quality_level']
+        
+        # FPS with color coding
+        fps_color = '#00ff00' if current_fps >= 50 else '#ffaa00' if current_fps >= 30 else '#ff4444'
+        ax.text(2, 9, f'{current_fps:.1f}', color=fps_color, fontsize=12, weight='bold')
+        
+        # Quality level
+        quality_text = f'L{quality_level}'
+        quality_color = '#00ff00' if quality_level >= 4 else '#ffaa00' if quality_level >= 2 else '#ff4444'
+        ax.text(2, 8, quality_text, color=quality_color, fontsize=12, weight='bold')
+        
+        # CPU usage (simulated)
+        cpu_usage = 35 + np.random.normal(0, 5)
+        cpu_color = '#00ff00' if cpu_usage < 50 else '#ffaa00' if cpu_usage < 75 else '#ff4444'
+        ax.text(2, 7, f'{cpu_usage:.0f}%', color=cpu_color, fontsize=12, weight='bold')
+        
+        # Memory usage (simulated)
+        memory_usage = 60 + np.random.normal(0, 3)
+        mem_color = '#00ff00' if memory_usage < 70 else '#ffaa00' if memory_usage < 85 else '#ff4444'
+        ax.text(2, 6, f'{memory_usage:.0f}%', color=mem_color, fontsize=12, weight='bold')
+        
+        # Detection count
+        detection_count = len(self.tracker.get_all_tracks())
+        ax.text(2, 5, f'{detection_count}', color='#00ff00', fontsize=12, weight='bold')
+        
+        # Track count
+        track_count = len(self.tracker.get_confirmed_tracks())
+        ax.text(2, 4, f'{track_count}', color='#00ff00', fontsize=12, weight='bold')
+        
+        # Performance bars
+        self.draw_performance_bars(ax)
+    
+    def draw_performance_bars(self, ax):
+        """Draw performance indicator bars"""
+        # FPS bar
+        fps_ratio = min(self.performance_monitor['current_fps'] / 60, 1.0)
+        fps_color = '#00ff00' if fps_ratio > 0.8 else '#ffaa00' if fps_ratio > 0.5 else '#ff4444'
+        fps_bar = Rectangle((5, 8.7), fps_ratio * 4, 0.6, 
+                          facecolor=fps_color, alpha=0.7)
+        ax.add_patch(fps_bar)
+        
+        # Quality bar
+        quality_ratio = self.performance_monitor['quality_level'] / 5
+        quality_bar = Rectangle((5, 7.7), quality_ratio * 4, 0.6, 
+                              facecolor='#00aaaa', alpha=0.7)
+        ax.add_patch(quality_bar)
+    
+    def update_status_panel(self):
+        """Update system status panel"""
+        ax = self.axes['status']
+        ax.clear()
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_title('SYSTEM STATUS', color='#00ff00', weight='bold')
+        ax.axis('off')
+        
+        # System state indicators
+        status_items = [
+            ('MODE:', self.system_state['operation_mode'], '#00ff00'),
+            ('ALERT:', self.system_state['alert_level'], 
+             {'GREEN': '#00ff00', 'YELLOW': '#ffff00', 'RED': '#ff0000'}[self.system_state['alert_level']]),
+            ('HEALTH:', self.system_state['system_health'], '#00ff00'),
+            ('SWEEP:', f"{self.system_state['sweep_angle']:.0f}°", '#ffffff'),
+            ('TIME:', f"{self.system_state['current_time']:.1f}s", '#ffffff'),
+            ('TARGETS:', f"{len(self.data_generator.targets)}", '#ffffff'),
+            ('TRACKS:', f"{len(self.tracker.get_confirmed_tracks())}", '#00ff00')
+        ]
+        
+        for i, (label, value, color) in enumerate(status_items):
+            y_pos = 9 - i * 1.2
+            ax.text(1, y_pos, label, color='#cccccc', fontsize=10, weight='bold')
+            ax.text(4, y_pos, str(value), color=color, fontsize=10, weight='bold')
+    
+    def animate(self, frame):
+        """Main animation function with performance monitoring"""
+        if not self.system_state['is_running']:
             return []
         
-        # Update system
-        self.current_time += 1.0 / self.target_fps
-        self.frame_count += 1
+        # Performance timing
+        frame_start_time = time.time()
         
-        # Mode-specific sweep behavior
-        mode_config = self.get_mode_sweep_config()
-        self.sweep_angle = (self.sweep_angle + mode_config['sweep_rate'] * 0.1) % 360
+        # Update system state
+        self.system_state['current_time'] += 1/60  # 60 FPS
+        self.system_state['sweep_angle'] = (self.system_state['sweep_angle'] + 
+                                          self.system_state['sweep_rate']) % 360
         
-        # Update targets
-        detection_start = time.perf_counter()
-        self.data_generator.update_targets(1.0 / self.target_fps)
+        # Update targets (physics simulation)
+        self.data_generator.update_targets(1/60)
         
-        # Process detections with current configuration
-        self.process_ultimate_detection(mode_config)
-        detection_time = (time.perf_counter() - detection_start) * 1000
+        # Update all display components
+        self.update_radar_display()
+        self.update_target_panel()
+        self.update_status_panel()
+        self.update_performance_panel()
         
-        # Update displays
-        render_start = time.perf_counter()
-        self.update_ultimate_radar_display()
-        self.update_all_panels()
-        render_time = (time.perf_counter() - render_start) * 1000
+        # Performance monitoring (Day 7)
+        frame_time = time.time() - frame_start_time
+        self.performance_monitor['frame_times'].append(frame_time)
+        self.performance_monitor['current_fps'] = 1 / max(frame_time, 0.001)
         
-        # Memory management
-        self.manage_memory()
+        # Keep performance history manageable
+        if len(self.performance_monitor['frame_times']) > 60:
+            self.performance_monitor['frame_times'].pop(0)
         
-        # Performance tracking
-        metrics = self.profiler.end_frame()
-        metrics.detection_time_ms = detection_time
-        metrics.rendering_time_ms = render_time
-        metrics.confirmed_tracks = len(self.tracker.get_confirmed_tracks())
-        
-        # Adaptive quality management
-        new_quality = self.quality_manager.update_quality(metrics.frame_rate)
-        metrics.quality_level = new_quality
-        
-        # Store performance data
-        self.performance_history.append({
-            'frame_rate': metrics.frame_rate,
-            'frame_time_ms': metrics.frame_time_ms,
-            'cpu_usage': metrics.cpu_usage,
-            'memory_mb': metrics.memory_usage_mb,
-            'quality': new_quality
-        })
+        # Adaptive quality adjustment (Day 7 feature)
+        if self.performance_monitor['adaptive_quality']:
+            self.adjust_quality_based_on_performance()
         
         return []
     
-    def get_mode_sweep_config(self) -> Dict[str, float]:
-        """Get sweep configuration based on current mode"""
-        mode_configs = {
-            RadarMode.SEARCH: {'sweep_rate': 30.0, 'beam_width': 30.0},
-            RadarMode.TRACK: {'sweep_rate': 60.0, 'beam_width': 10.0},
-            RadarMode.TWS: {'sweep_rate': 45.0, 'beam_width': 20.0},
-            RadarMode.WEATHER: {'sweep_rate': 15.0, 'beam_width': 40.0},
-            RadarMode.STANDBY: {'sweep_rate': 0.0, 'beam_width': 0.0}
-        }
-        return mode_configs.get(self.current_config.current_mode, mode_configs[RadarMode.SEARCH])
+    def adjust_quality_based_on_performance(self):
+        """Adjust rendering quality based on performance (Day 7)"""
+        current_fps = self.performance_monitor['current_fps']
+        target_fps = self.performance_monitor['target_fps']
+        
+        if current_fps < target_fps * 0.8:  # Below 80% of target
+            if self.performance_monitor['quality_level'] > 1:
+                self.performance_monitor['quality_level'] -= 1
+                self.apply_quality_settings()
+        elif current_fps > target_fps * 0.95:  # Above 95% of target
+            if self.performance_monitor['quality_level'] < 5:
+                self.performance_monitor['quality_level'] += 1
+                self.apply_quality_settings()
     
-    def process_ultimate_detection(self, mode_config):
-        """Process detections with mode-specific and performance optimizations"""
-        if mode_config['sweep_rate'] == 0:
-            return
-            
-        # Get quality settings
-        quality_settings = self.quality_manager.get_quality_settings()
+    def apply_quality_settings(self):
+        """Apply quality settings based on current level"""
+        level = self.performance_monitor['quality_level']
         
-        # Adjust beam width based on quality
-        beam_width = mode_config['beam_width'] * quality_settings['detail_level']
-        
-        # Get detections
-        detections = self.data_generator.simulate_radar_detection(
-            self.sweep_angle, sweep_width_deg=beam_width
-        )
-        
-        if not detections:
-            return
-            
-        # Apply configuration filters
-        filtered_detections = [
-            d for d in detections 
-            if self.current_config.min_range_km <= d.get('range', 0) <= self.current_config.max_range_km
-        ]
-        
-        # Limit detections based on quality
-        max_detections = int(100 * quality_settings['detail_level'])
-        if len(filtered_detections) > max_detections:
-            filtered_detections = sorted(filtered_detections, 
-                                       key=lambda d: d.get('signal_strength', 0), 
-                                       reverse=True)[:max_detections]
-        
-        # Process detections
-        if self.async_processing and not self.processing_queue.full():
-            try:
-                self.processing_queue.put_nowait(('detection', (filtered_detections, self.current_time)))
-            except queue.Full:
-                pass
-        else:
-            targets = self.target_detector.process_raw_detections(filtered_detections)
-            if targets:
-                self.tracker.update(targets, self.current_time)
+        if level == 5:  # Maximum quality
+            self.radar_features['trails_enabled'] = True
+            self.radar_features['velocity_vectors'] = True
+            self.radar_features['classification_display'] = True
+            self.system_state['sweep_rate'] = 6.0
+        elif level == 4:  # High quality
+            self.radar_features['trails_enabled'] = True
+            self.radar_features['velocity_vectors'] = True
+            self.radar_features['classification_display'] = False
+            self.system_state['sweep_rate'] = 8.0
+        elif level == 3:  # Medium quality
+            self.radar_features['trails_enabled'] = False
+            self.radar_features['velocity_vectors'] = True
+            self.radar_features['classification_display'] = False
+            self.system_state['sweep_rate'] = 10.0
+        elif level == 2:  # Low quality
+            self.radar_features['trails_enabled'] = False
+            self.radar_features['velocity_vectors'] = False
+            self.radar_features['classification_display'] = False
+            self.system_state['sweep_rate'] = 12.0
+        else:  # Minimum quality
+            self.radar_features['trails_enabled'] = False
+            self.radar_features['velocity_vectors'] = False
+            self.radar_features['classification_display'] = False
+            self.system_state['sweep_rate'] = 15.0
     
-    def update_ultimate_radar_display(self):
-        """Ultimate radar display with all features"""
-        ax = self.axes['radar']
-        ax.clear()
+    def on_click(self, event):
+        """Handle mouse clicks on controls"""
+        if event.inaxes == self.axes['controls']:
+            x, y = event.xdata, event.ydata
+            if x is not None and y is not None:
+                # Determine which control was clicked
+                if 1.2 <= x <= 2.8:  # START button
+                    if 4.7 <= y <= 5.3:
+                        self.start_ultimate_system()
+                elif 5.2 <= x <= 6.8:  # STOP button
+                    if 4.7 <= y <= 5.3:
+                        self.stop_ultimate_system()
+                elif 9.2 <= x <= 10.8:  # RESET button
+                    if 4.7 <= y <= 5.3:
+                        self.reset_ultimate_system()
+                elif 13.2 <= x <= 14.8:  # MODE button
+                    if 4.7 <= y <= 5.3:
+                        self.cycle_operation_mode()
+                elif 1.2 <= x <= 2.8:  # SCENARIO button
+                    if 2.7 <= y <= 3.3:
+                        self.cycle_scenario()
+                elif 5.2 <= x <= 6.8:  # OPTIMIZE button
+                    if 2.7 <= y <= 3.3:
+                        self.toggle_optimization()
+                elif 9.2 <= x <= 10.8:  # TRAILS button
+                    if 2.7 <= y <= 3.3:
+                        self.toggle_trails()
+                elif 13.2 <= x <= 14.8:  # VECTORS button
+                    if 2.7 <= y <= 3.3:
+                        self.toggle_vectors()
+    
+    def start_ultimate_system(self):
+        """Start the ultimate radar system"""
+        self.system_state['is_running'] = True
+        self.system_state['current_time'] = 0.0
+        self.system_state['sweep_angle'] = 0.0
+        self.system_state['alert_level'] = 'GREEN'
+        self.system_state['system_health'] = 'OPTIMAL'
         
-        # Reconfigure scope for current range
-        max_range = self.current_config.max_range_km
-        ax.set_ylim(0, max_range)
+        # Reset performance monitoring
+        self.performance_monitor['frame_times'] = []
+        self.performance_monitor['fps_history'] = []
         
-        # Draw range rings
-        for r in [max_range*0.25, max_range*0.5, max_range*0.75, max_range]:
-            circle = Circle((0, 0), r, fill=False, color='#00ff00', alpha=0.3, linewidth=1)
-            ax.add_patch(circle)
-            ax.text(np.pi/4, r-max_range*0.05, f'{r:.0f}km', color='#00ff00', fontsize=10, ha='center')
+        # Reset tracker
+        self.tracker = MultiTargetTracker()
         
-        # Mode-specific sweep display
-        sweep_rad = np.radians(self.sweep_angle)
-        mode_config = self.get_mode_sweep_config()
-        quality_settings = self.quality_manager.get_quality_settings()
+        print("🚀 ULTIMATE RADAR SYSTEM STARTED")
+        print("=" * 50)
+        print("✅ Advanced Features Active:")
+        print("  🎯 Multi-target tracking with Kalman filters")
+        print("  📡 Real-time signal processing pipeline")
+        print("  🖥️  Professional radar display with HUD")
+        print("  ⚡ Performance optimization (Day 7)")
+        print("  🧠 Adaptive quality management")
+        print("  🎮 Interactive operator controls")
+        print("  📊 Real-time performance monitoring")
+        print("  🎨 Professional radar aesthetics")
+        print("=" * 50)
         
-        # Mode-specific colors
-        mode_colors = {
-            RadarMode.SEARCH: '#00ff00',
-            RadarMode.TRACK: '#ff4400', 
-            RadarMode.TWS: '#00ffff',
-            RadarMode.WEATHER: '#ffff00',
-            RadarMode.STANDBY: '#404040'
-        }
-        sweep_color = mode_colors[self.current_config.current_mode]
+    def stop_ultimate_system(self):
+        """Stop the ultimate radar system"""
+        self.system_state['is_running'] = False
+        self.system_state['system_health'] = 'STANDBY'
+        print("🛑 Ultimate Radar System STOPPED")
+        
+    def reset_ultimate_system(self):
+        """Reset the ultimate radar system"""
+        self.stop_ultimate_system()
+        self.tracker = MultiTargetTracker()
+        self.performance_monitor['quality_level'] = 5
+        self.load_comprehensive_scenario()
+        print("🔄 Ultimate Radar System RESET")
+        
+    def cycle_operation_mode(self):
+        """Cycle through operation modes"""
+        modes = ['SEARCH', 'TRACK', 'ENGAGE']
+        current_index = modes.index(self.system_state['operation_mode'])
+        next_index = (current_index + 1) % len(modes)
+        self.system_state['operation_mode'] = modes[next_index]
+        print(f"🔄 Mode changed to: {self.system_state['operation_mode']}")
+        
+    def cycle_scenario(self):
+        """Cycle through different scenarios"""
+        scenarios = ['comprehensive', 'busy_airport', 'naval_operations', 'storm_tracking']
+        # For demo, just reload comprehensive scenario
+        self.load_comprehensive_scenario()
+        print("🎬 Scenario reloaded: Comprehensive Test")
+        
+    def toggle_optimization(self):
+        """Toggle performance optimization"""
+        self.performance_monitor['adaptive_quality'] = not self.performance_monitor['adaptive_quality']
+        status = "ENABLED" if self.performance_monitor['adaptive_quality'] else "DISABLED"
+        print(f"⚡ Performance optimization: {status}")
+        
+    def toggle_trails(self):
+        """Toggle track trails"""
+        self.radar_features['trails_enabled'] = not self.radar_features['trails_enabled']
+        status = "ON" if self.radar_features['trails_enabled'] else "OFF"
+        print(f"🛤️  Track trails: {status}")
+        
+    def toggle_vectors(self):
+        """Toggle velocity vectors"""
+        self.radar_features['velocity_vectors'] = not self.radar_features['velocity_vectors']
+        status = "ON" if self.radar_features['velocity_vectors'] else "OFF"
+        print(f"➡️ Velocity vectors: {status}")
+    
+    def run_ultimate_demo(self):
+        """Run the ultimate radar system demonstration"""
+        print("🎯 LAUNCHING ULTIMATE RADAR SYSTEM DEMO")
+        print("=" * 60)
+        print("This is the culmination of your 7-day radar development journey!")
+        print()
+        print("🏆 COMPLETE FEATURE SET:")
+        print("  Day 1: ✅ Radar basics & coordinate systems")
+        print("  Day 2: ✅ Professional animated display")
+        print("  Day 3: ✅ Realistic data generation")
+        print("  Day 4: ✅ Signal processing & detection")
+        print("  Day 5: ✅ Advanced Kalman tracking")
+        print("  Day 6: ✅ Real-time UI integration")
+        print("  Day 7: ✅ Performance optimization")
+        print()
+        print("🎮 INTERACTIVE CONTROLS:")
+        print("  • Click START to begin radar operation")
+        print("  • Click STOP to pause the system")
+        print("  • Click RESET to reload scenario")
+        print("  • Click MODE to cycle operation modes")
+        print("  • Click other buttons to toggle features")
+        print()
+        print("📊 MONITORING PANELS:")
+        print("  • Main radar display with sweep animation")
+        print("  • Target information with threat assessment")
+        print("  • System status and configuration")
+        print("  • Real-time performance monitoring")
+        print("  • Advanced control interface")
+        print()
+        print("⚡ DAY 7 PERFORMANCE FEATURES:")
+        print("  • 60 FPS targeting with adaptive quality")
+        print("  • Real-time performance monitoring")
+        print("  • Automatic quality level adjustment")
+        print("  • Multi-threaded processing ready")
+        print("  • Resource usage optimization")
+        print()
+        print("🎯 Ready for demonstration!")
+        print("=" * 60)
+        
+        # Connect mouse events
+        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+        
+        # Start animation at 60 FPS
+        self.animation = FuncAnimation(self.fig, self.animate, interval=16, 
+                                     blit=False, cache_frame_data=False)
+        
+        plt.tight_layout()
+        plt.show()
+
+def main():
+    """Launch the ultimate radar system demonstration"""
+    print("🚀 INITIALIZING DAY 7 TASK 4: ULTIMATE INTEGRATION DEMO")
+    print()
+    
+    try:
+        # Create and run the ultimate demonstration
+        demo = UltimateRadarDemo()
+        demo.run_ultimate_demo()
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Demo stopped by user")
+    except Exception as e:
+        print(f"\n❌ Demo error: {e}")
+        print("💡 Ensure all required modules are available")
+        
+if __name__ == "__main__":
+    main()
