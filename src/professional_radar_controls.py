@@ -12,28 +12,16 @@ from matplotlib.widgets import Button, Slider, CheckButtons, RadioButtons
 from matplotlib.patches import Rectangle, Circle
 from dataclasses import dataclass
 from typing import Dict, List, Callable, Any
-from enum import Enum
 import time
 from datetime import datetime
 
-# Real radar system modes
-class RadarMode(Enum):
-    SEARCH = "Search"
-    TRACK = "Track"
-    TWS = "Track-While-Scan"
-    STANDBY = "Standby"
-    CALIBRATION = "Calibration"
+# Import shared types from radar_enums module
+from radar_enums import RadarMode, AlertLevel, SystemAlert
 
-class AlertLevel(Enum):
-    ROUTINE = "ROUTINE"
-    CAUTION = "CAUTION"
-    WARNING = "WARNING"
-    CRITICAL = "CRITICAL"
-    EMERGENCY = "EMERGENCY"
 
 @dataclass
-class RadarConfiguration:
-    """Professional radar system configuration"""
+class ProfessionalRadarConfiguration:
+    """Professional radar system configuration with extended parameters"""
     max_range_km: float = 250.0
     sweep_rate_rpm: float = 15.0
     sensitivity_db: float = -110.0
@@ -44,20 +32,11 @@ class RadarConfiguration:
     range_scale_km: float = 100.0
     trail_length_sec: float = 30.0
 
-@dataclass
-class SystemAlert:
-    """Professional radar system alert"""
-    timestamp: float
-    level: AlertLevel
-    message: str
-    source: str
-    acknowledged: bool = False
-
 class ProfessionalRadarControls:
     """Clean professional radar control system"""
     
-    def __init__(self, config: RadarConfiguration = None):
-        self.config = config or RadarConfiguration()
+    def __init__(self, config: ProfessionalRadarConfiguration = None):
+        self.config = config or ProfessionalRadarConfiguration()
         self.alerts: List[SystemAlert] = []
         self.callbacks: Dict[str, Callable] = {}
         
@@ -570,7 +549,7 @@ CURRENT:
     def reset_system(self):
         """Reset system"""
         self.stop_system()
-        self.config = RadarConfiguration()
+        self.config = ProfessionalRadarConfiguration()
         self.alerts.clear()
         self.add_alert(AlertLevel.WARNING, "System RESET completed", "System Control")
         if 'system_reset' in self.callbacks:
@@ -692,7 +671,7 @@ def demo_clean_controls():
     print("🎯 CLEAN PROFESSIONAL RADAR CONTROLS")
     print("=" * 40)
     
-    config = RadarConfiguration(
+    config = ProfessionalRadarConfiguration(
         max_range_km=250.0,
         sweep_rate_rpm=15.0,
         radar_mode=RadarMode.SEARCH

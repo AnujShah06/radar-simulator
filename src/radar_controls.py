@@ -9,45 +9,14 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import Button, Slider, CheckButtons, RadioButtons
 from matplotlib.patches import Rectangle, Circle
 import matplotlib.patches as mpatches
-from dataclasses import dataclass
 from typing import Dict, List, Callable, Any
-from enum import Enum
 import threading
 import time
 import json
 from datetime import datetime
 
-class RadarMode(Enum):
-    SEARCH = "Search"
-    TRACK = "Track"
-    STANDBY = "Standby"
-    CALIBRATION = "Calibration"
-
-class AlertLevel(Enum):
-    INFO = "INFO"
-    WARNING = "WARNING"
-    CRITICAL = "CRITICAL"
-
-@dataclass
-class RadarConfiguration:
-    """Radar system configuration parameters"""
-    max_range: float = 100.0  # km
-    scan_rate: float = 6.0    # RPM
-    sensitivity: float = 0.7  # 0.0 - 1.0
-    clutter_rejection: bool = True
-    weather_filter: bool = True
-    track_confirmation: int = 3  # detections needed
-    mode: RadarMode = RadarMode.SEARCH
-    auto_track: bool = True
-    alert_threshold: float = 0.8  # threat level
-
-@dataclass
-class SystemAlert:
-    """System alert/notification"""
-    timestamp: float
-    level: AlertLevel
-    message: str
-    source: str
+# Import shared types from radar_enums module
+from radar_enums import RadarMode, AlertLevel, RadarConfiguration, SystemAlert
 
 class RadarControlPanel:
     """Professional radar control interface using matplotlib"""

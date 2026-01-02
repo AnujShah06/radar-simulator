@@ -10,25 +10,9 @@ import numpy as np
 from scipy import signal
 from typing import List, Dict, Tuple, Optional
 import random
-from dataclasses import dataclass
-from enum import Enum
 
-@dataclass
-class RadarReturn:
-    """Single radar return/detection"""
-    range_km: float
-    bearing_deg: float
-    signal_strength: float
-    noise_level: float
-    timestamp: float
-    doppler_shift: float = 0.0
-    is_valid: bool = True
-
-class FilterType(Enum):
-    MOVING_AVERAGE = "moving_average"
-    EXPONENTIAL = "exponential"
-    KALMAN = "kalman"
-    THRESHOLD = "threshold"
+# Import shared types from signal_types module
+from signal_types import RadarReturn, FilterType
 
 class SignalProcessor:
     def __init__(self):

@@ -12,49 +12,10 @@ from scipy import signal
 from scipy.fft import fft, ifft, fftfreq
 from typing import List, Dict, Tuple, Optional
 import random
-from dataclasses import dataclass
-from enum import Enum
 import matplotlib.pyplot as plt
 
-@dataclass
-class RadarReturn:
-    """Enhanced radar return with advanced signal properties"""
-    range_km: float
-    bearing_deg: float
-    signal_strength: float
-    noise_level: float
-    timestamp: float
-    doppler_shift: float = 0.0
-    clutter_level: float = 0.0
-    interference_level: float = 0.0
-    frequency_content: Optional[np.ndarray] = None
-    is_valid: bool = True
-    confidence: float = 1.0
-
-class ClutterType(Enum):
-    """Types of radar clutter"""
-    GROUND = "ground_clutter"
-    SEA = "sea_clutter"  
-    WEATHER = "weather_clutter"
-    CHAFF = "chaff_clutter"
-    URBAN = "urban_clutter"
-
-class InterferenceType(Enum):
-    """Types of radar interference"""
-    JAMMING = "electronic_jamming"
-    MULTIPATH = "multipath_interference"
-    SIDELOBE = "antenna_sidelobe"
-    HARMONIC = "harmonic_distortion"
-    ATMOSPHERIC = "atmospheric_noise"
-
-class FilterType(Enum):
-    """Advanced filter types"""
-    ADAPTIVE_MTI = "adaptive_mti"        # Moving Target Indication
-    DOPPLER_BANK = "doppler_filter_bank" 
-    CFAR = "constant_false_alarm_rate"   # CFAR detection
-    WIENER = "wiener_filter"
-    KALMAN = "kalman_filter"
-    MATCHED = "matched_filter"
+# Import shared types from signal_types module
+from signal_types import RadarReturn, FilterType, ClutterType, InterferenceType
 
 class AdvancedSignalProcessor:
     """Professional-grade radar signal processor with advanced capabilities"""
