@@ -117,7 +117,7 @@ class SignalProcessor:
         range_m = range_km * 1000
         antenna_gain_linear = 10 ** (antenna_gain / 10)
         
-        #radar range equation: Pr = (Pt * G^2 * λ^2 * σ) / ((4π)^3 * R^4)
+        #radar range equation: Pr = (Pt * G^2 * Î»^2 * Ïƒ) / ((4Ï€)^3 * R^4)
         wavelength = 3e8 / (frequency_ghz * 1e9)  #c / f
         
         # FIXED: Prevent overflow with realistic calculation
@@ -231,7 +231,7 @@ def test_signal_processing():
     clean_signal = 0.8
     for i in range(5):
         noisy = processor.add_noise_to_signal(clean_signal, noise_level=0.05)
-        print(f"   Clean: {clean_signal:.3f} → Noisy: {noisy:.3f}")
+        print(f"   Clean: {clean_signal:.3f} â†’ Noisy: {noisy:.3f}")
     
     #test 2: radar range equation with realistic RCS:
     print("\n2. Testing fixed radar range equation:")
@@ -239,12 +239,12 @@ def test_signal_processing():
     test_rcs = [5, 20, 50]  # FIXED: Realistic aircraft RCS
     
     for rcs in test_rcs:
-        print(f"\n   Target RCS: {rcs} m²")
+        print(f"\n   Target RCS: {rcs} mÂ²")
         for range_km in test_ranges:
             strength = processor.radar_range_equation(rcs, range_km)
             print(f"     {range_km:3d} km: {strength:.4f}")
     
-    print("\n✅ Fixed signal processing tests complete!")
+    print("\nâœ… Fixed signal processing tests complete!")
 
 if __name__ == "__main__":
     test_signal_processing()

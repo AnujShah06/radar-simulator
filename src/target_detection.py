@@ -163,7 +163,7 @@ class TargetDetector:
             
             print(f"\n  Classifying {target.id}:")
             print(f"    Doppler: {abs(target.doppler_shift):.1f} m/s")
-            print(f"    Estimated RCS: {estimated_rcs:.1f} m²")
+            print(f"    Estimated RCS: {estimated_rcs:.1f} mÂ²")
             print(f"    Signal variability: {signal_variability:.3f}")
             
             #score each classification
@@ -207,7 +207,7 @@ class TargetDetector:
             #FIXED: Lower confidence threshold
             if target.confidence < 0.3:  # FIXED: was 0.4, now 0.3
                 target.classification = "unknown"
-                print(f"    → Confidence too low, marked as unknown")
+                print(f"    â†’ Confidence too low, marked as unknown")
         
         return targets
     
@@ -227,7 +227,7 @@ class TargetDetector:
             estimated_rcs = 1.0
         
         # FIXED: Bound to realistic values
-        estimated_rcs = max(1.0, min(200.0, estimated_rcs))  # 1-200 m² range
+        estimated_rcs = max(1.0, min(200.0, estimated_rcs))  # 1-200 mÂ² range
         
         return estimated_rcs
     
@@ -306,13 +306,13 @@ def test_target_detection():
     if detected_targets:
         for target in detected_targets:
             print(f"\n  {target.id}: {target.classification.upper()}")
-            print(f"    Position: {target.range_km:.1f} km, {target.bearing_deg:.1f}°")
+            print(f"    Position: {target.range_km:.1f} km, {target.bearing_deg:.1f}Â°")
             print(f"    Signal: {target.signal_strength:.3f}, SNR: {target.snr_db:.1f} dB")
             print(f"    Doppler: {target.doppler_shift:.1f} m/s")
             print(f"    Confidence: {target.confidence:.2f}")
-            print(f"    Estimated RCS: {detector.estimate_rcs_from_signal(target.signal_strength, target.range_km):.1f} m²")
+            print(f"    Estimated RCS: {detector.estimate_rcs_from_signal(target.signal_strength, target.range_km):.1f} mÂ²")
     else:
-        print("  ❌ No targets confirmed")
+        print("  âŒ No targets confirmed")
     
     # Statistics
     stats = detector.get_detection_statistics(detected_targets)
@@ -327,7 +327,7 @@ def test_target_detection():
             for class_name, count in stats['by_classification'].items():
                 print(f"      {class_name}: {count}")
     
-    print("\n✅ Fixed target detection test complete!")
+    print("\nâœ… Fixed target detection test complete!")
     return detected_targets
 
 if __name__ == "__main__":

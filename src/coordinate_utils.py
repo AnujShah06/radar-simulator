@@ -17,8 +17,8 @@ def polar_to_cartesian(ranges, bearings_deg):
     # Convert degrees to radians
     bearings_rad = np.radians(bearings_deg)
     
-    # Radar convention: 0° = North, clockwise
-    # Math convention: 0° = East, counterclockwise
+    # Radar convention: 0Â° = North, clockwise
+    # Math convention: 0Â° = East, counterclockwise
     # Convert: radar_angle = 90 - math_angle
     math_bearings = np.radians(90 - bearings_deg)
     

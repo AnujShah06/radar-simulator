@@ -34,7 +34,7 @@ class RadarTarget:
     position_y: float  # km
     velocity_x: float  # km/h
     velocity_y: float  # km/h
-    radar_cross_section: float  # m² (how visible to radar)
+    radar_cross_section: float  # mÂ² (how visible to radar)
     altitude: float  # meters
     heading: float  # degrees
     speed: float  # km/h
@@ -71,7 +71,7 @@ class RadarDataGenerator:
         """Add an aircraft target"""
         #different aircraft have different radar signatures - FIXED TO REALISTIC VALUES
         rcs_values = {
-            "commercial": 50.0,   # FIXED: Was 100, now realistic 50 m²
+            "commercial": 50.0,   # FIXED: Was 100, now realistic 50 mÂ²
             "fighter": 5.0,       # stealth fighter
             "cessna": 2.0,        # small aircraft
             "bomber": 40.0        # large military aircraft
@@ -372,7 +372,7 @@ def test_complete_system():
     
     # ADDED: Show target positions for verification
     for target in generator.targets:
-        print(f"  {target.id}: {target.range_km:.1f}km, {target.speed:.0f}km/h, RCS:{target.radar_cross_section:.1f}m²")
+        print(f"  {target.id}: {target.range_km:.1f}km, {target.speed:.0f}km/h, RCS:{target.radar_cross_section:.1f}mÂ²")
     
     print("\n=== Testing Target Movement ===")
     initial_positions = [(t.position_x, t.position_y) for t in generator.targets[:3]]
@@ -386,15 +386,15 @@ def test_complete_system():
     print("\n=== Testing Radar Detection ===")
     sweep_angle = 45  # degrees
     detections = generator.simulate_radar_detection(sweep_angle)
-    print(f"Radar sweep at {sweep_angle}° detected {len(detections)} objects")
+    print(f"Radar sweep at {sweep_angle}Â° detected {len(detections)} objects")
     
     for detection in detections:
         if detection.get('is_false_alarm'):
-            print(f"  FALSE ALARM at {detection['range']:.1f}km, {detection['bearing']:.1f}°")
+            print(f"  FALSE ALARM at {detection['range']:.1f}km, {detection['bearing']:.1f}Â°")
         else:
             target = detection['target']
             doppler = detection.get('doppler_shift', 0)
-            print(f"  {target.id}: {detection['range']:.1f}km, {detection['bearing']:.1f}°, Doppler: {doppler:.1f}m/s")
+            print(f"  {target.id}: {detection['range']:.1f}km, {detection['bearing']:.1f}Â°, Doppler: {doppler:.1f}m/s")
 
 if __name__ == "__main__":
     test_complete_system()

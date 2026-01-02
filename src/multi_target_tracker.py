@@ -1,17 +1,19 @@
 """
-Multi-target tracking system using Kalman filters
-"""
+Multi-target tracking system using Kalman filters.
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+This module implements a sophisticated multi-target tracking system that:
+- Manages multiple simultaneous target tracks using individual Kalman filters
+- Associates radar detections with existing tracks using nearest-neighbor algorithm
+- Handles track initialization, confirmation, and termination lifecycle
+- Provides track quality metrics and classification fusion
+"""
 
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field
 import time
-from src.kalman_filter import KalmanFilter, TrackState
-from src.target_detection import DetectedTarget
+from kalman_filter import KalmanFilter, TrackState
+from target_detection import DetectedTarget
 
 @dataclass
 class Track:
@@ -422,7 +424,7 @@ def test_multi_target_tracker():
     # Plot tracking results
     plot_multi_target_results(all_tracks_history)
     
-    print("\n✅ Multi-target tracking test complete!")
+    print("\nâœ… Multi-target tracking test complete!")
     
     return tracker, all_tracks_history
 
@@ -478,7 +480,7 @@ def plot_multi_target_results(tracks_history):
     ax.axis('equal')
     
     # Add legend for markers
-    ax.text(0.02, 0.98, '□ Start  △ End', transform=ax.transAxes, 
+    ax.text(0.02, 0.98, 'â–¡ Start  â–³ End', transform=ax.transAxes, 
             fontsize=10, verticalalignment='top',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     

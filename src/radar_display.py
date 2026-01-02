@@ -69,7 +69,7 @@ class RadarDisplay:
                            color='lime', ha='center', va='center', 
                            fontsize=12, weight='bold')
             else:
-                self.ax.text(theta_rad, self.max_range * 1.05, f'{angle}°', 
+                self.ax.text(theta_rad, self.max_range * 1.05, f'{angle}Â°', 
                            color='lime', ha='center', va='center', fontsize=8)
     
     def add_target(self, range_km, bearing_deg, target_type='aircraft', strength=1.0):

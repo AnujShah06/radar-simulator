@@ -304,17 +304,17 @@ def test_kalman_filter():
     print(f"  Position: ({final_state.x:.1f}, {final_state.y:.1f}) km")
     print(f"  Velocity: ({final_state.vx:.1f}, {final_state.vy:.1f}) km/s")
     print(f"  Speed: {final_state.speed_kmh:.1f} km/h")
-    print(f"  Heading: {final_state.heading_deg:.1f}°")
+    print(f"  Heading: {final_state.heading_deg:.1f}Â°")
     
     pos_uncertainty = kf.get_position_uncertainty()
     vel_uncertainty = kf.get_velocity_uncertainty()
-    print(f"  Position uncertainty: ±{pos_uncertainty[0]:.1f}, ±{pos_uncertainty[1]:.1f} km")
-    print(f"  Velocity uncertainty: ±{vel_uncertainty[0]:.1f}, ±{vel_uncertainty[1]:.1f} km/s")
+    print(f"  Position uncertainty: Â±{pos_uncertainty[0]:.1f}, Â±{pos_uncertainty[1]:.1f} km")
+    print(f"  Velocity uncertainty: Â±{vel_uncertainty[0]:.1f}, Â±{vel_uncertainty[1]:.1f} km/s")
     
     # Plot results
     plot_tracking_results(true_positions, measurements, predicted_positions, updated_positions)
     
-    print("\n✅ Kalman filter test complete!")
+    print("\nâœ… Kalman filter test complete!")
     
     return kf, true_positions, measurements, predicted_positions, updated_positions
 
